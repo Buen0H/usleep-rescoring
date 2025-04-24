@@ -5,11 +5,18 @@ display the 30 seconds of raw data for the experiment and allow the expert to in
 the correct sleep stage.
 
 TODO
-- Confirm [0,1,2,3,4] -> [Wake REM N1 N2 N3]
 - Validate analyze_uncertain_periods logic with Sarah.
 - Reorder biosignal channels [EOG x2, front EEG, ... , back EEG, EMG x2]
 - Put file upload information in a container.
 - Elaborate on file checks.
+- Add a way to get context
+- Mark rescoring periods on the scoring plot
+- Add a stage 2 to find start of wake cycles.
+- Autoscaling; change scale of individual channels
+- Disable channels
+- Score artifact
+- EOG twice
+- Wider
 
 
 '''
@@ -22,6 +29,9 @@ from scipy import ndimage
 from typing import Dict
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+import logging
+
+LOG_LEVEL = logging.DEBUG
 
 SELECT_AUTOSCALING = "MINMAX"
 SELECT_N_UNCERTAIN_PERIOD = 5
@@ -31,54 +41,99 @@ SLEEP_STAGE_LABELS = ["Wake", "REM", "N1", "N2", "N3"]
 FS_PSG = 500 # get from edf file instead.  
 
 def main():
-    print(*reversed(SLEEP_STAGE_LABELS))
-    uploaded_files = st.file_uploader(label="Upload raw data and U-Sleep scoring.",
-        type=[".npy", ".edf"],
-        accept_multiple_files=True,
-        label_visibility="visible",
-    )
-    print(uploaded_files is None)
-
-    if len(uploaded_files) != 2:
-        print("test")
+    """Main function to run the Streamlit app."""
+    # Initialize logging
+    logging_init()
+    logging.info("Starting Streamlit app.")
+    logging.debug("TEST")
+    # Set the title of the app
+    st.title("U-Sleep Rescoring Tool")
+    # Create mechanism to import files.
+    ret = sidebar_import_data()
+    if ret is None:
+        logging.warning("No files uploaded.")
         st.warning("Please upload files to continue with rescoring.")
-    else:
-        # Import uploaded files
-        for uploaded_file in uploaded_files:
-            filename = uploaded_file.name
-            if filename.endswith(".npy"):
-                scoring = np.load(uploaded_file)
-                scoring_time_hrs = np.arange(scoring.shape[0]) * 30 / 3600  # Every data point corresponds to a 30 second epoch; convert to hours.
-                scoring_duration = scoring_time_hrs[-1]
-                st.write(f"Found scoring file labeled {filename} with \
-                        {scoring_duration:.0f} hours and {scoring_duration%1*60:.0f} minutes.")
-            elif filename.endswith(".edf"):
-                # Create a temporary file
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".edf") as temp_file:
-                    temp_file.write(uploaded_file.read())  # Write the uploaded file content
-                    temp_file_path = temp_file.name  # Get the file path
+        # # Process uploaded files
+        # uncertain_info = analyze_uncertain_periods(scoring, scoring_time_hrs)
+        # naive_scoring = np.argmax(scoring, axis=1)
+        # # Look through uncertain periods
+        # for uncertain_period in uncertain_info["uncertain_periods"]:
+        #     slice_start = int(uncertain_period["start_hour"]*3600)*FS_PSG
+        #     slice_stop = int(slice_start + 30)*FS_PSG
+        #     visible_time_slice = np.s_[slice_start:slice_stop]
+        #     break
+        # # Plot figures
+        # fig = draw_figure(data_scoring=naive_scoring, data_biosignals=raw_obj,
+        #                 time_slice=visible_time_slice)
+        # st.pyplot(fig)
 
-                # Read the EDF file using MNE
-                raw_obj = mne.io.read_raw_edf(temp_file_path, preload=True)
+def logging_init():
+    """Initialize logging."""
+    logging.basicConfig(
+        level=LOG_LEVEL,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler()
+        ]
+    )
+    logging.info("Logging initialized.")
 
-                ch_labels = raw_obj.ch_names
-                _, time_sec = raw_obj[:]
-                st.write(f"Found PSG file with the following signals: {ch_labels} and a duration of \
-                        {time_sec[-1]/3600:.0f} hours and {time_sec[-1]/3600%1*60:.0f} minutes.")
-        # Process uploaded files
-        uncertain_info = analyze_uncertain_periods(scoring, scoring_time_hrs)
-        naive_scoring = np.argmax(scoring, axis=1)
-        # Look through uncertain periods
-        for uncertain_period in uncertain_info["uncertain_periods"]:
-            slice_start = int(uncertain_period["start_hour"]*3600)*FS_PSG
-            slice_stop = int(slice_start + 30)*FS_PSG
-            visible_time_slice = np.s_[slice_start:slice_stop]
-            break
-        # Plot figures
-        fig = draw_figure(data_scoring=naive_scoring, data_biosignals=raw_obj,
-                        time_slice=visible_time_slice)
-        st.pyplot(fig)
+def sidebar_import_data():
+    """Sidebar for importing data."""
+    # Populate sidebar with file upload options
+    with st.sidebar:
+        st.header("Import Data")
+        st.write("The raw data should be in EDF format, and the U-Sleep scoring should be in NPY format.")
+        st.write("Please ensure that both files are from the same experiment.")
+        uploaded_files = st.file_uploader(label="Upload raw data and U-Sleep scoring.",
+            type=[".npy", ".edf"],
+            accept_multiple_files=True,
+            label_visibility="visible",
+        )
+    # Check if files are uploaded
+    if uploaded_files == []:
+        return None
+    # Import uploaded files
+    logging.info("Files uploaded.")
+    for uploaded_file in uploaded_files:
+        filename = uploaded_file.name
+        if filename.endswith(".npy"):
+            logging.debug(f"Found scoring file: {filename}")
+            scoring = np.load(uploaded_file)
+            scoring_time_hrs = np.arange(scoring.shape[0]) * 30 / 3600  # Every data point corresponds to a 30 second epoch; convert to hours.
+            scoring_duration = scoring_time_hrs[-1]
+            st.write(f"Found scoring file labeled {filename} with \
+                    {scoring_duration:.0f} hours and {scoring_duration%1*60:.0f} minutes.")
+            logging.debug(f"Scoring shape: {scoring.shape}")
+        elif filename.endswith(".edf"):
+            logging.debug(f"Found raw data file: {filename}")
+            # Create a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".edf") as temp_file:
+                temp_file.write(uploaded_file.read())  # Write the uploaded file content
+                temp_file_path = temp_file.name  # Get the file path
 
+            # Read the EDF file using MNE
+            raw_obj = mne.io.read_raw_edf(temp_file_path, preload=True)
+
+            ch_labels = raw_obj.ch_names
+            _, time_sec = raw_obj[:]
+            st.write(f"Found PSG file with the following signals: {ch_labels} and a duration of \
+                    {time_sec[-1]/3600:.0f} hours and {time_sec[-1]/3600%1*60:.0f} minutes.")
+            logging.debug(f"Raw data loaded.")
+    return []
+    #     # Process uploaded files
+    #     uncertain_info = analyze_uncertain_periods(scoring, scoring_time_hrs)
+    #     naive_scoring = np.argmax(scoring, axis=1)
+    #     # Look through uncertain periods
+    #     for uncertain_period in uncertain_info["uncertain_periods"]:
+    #         slice_start = int(uncertain_period["start_hour"]*3600)*FS_PSG
+    #         slice_stop = int(slice_start + 30)*FS_PSG
+    #         visible_time_slice = np.s_[slice_start:slice_stop]
+    #         break
+    #     # Plot figures
+    #     fig = draw_figure(data_scoring=naive_scoring, data_biosignals=raw_obj,
+    #                     time_slice=visible_time_slice)
+    #     st.pyplot(fig)
 
 def analyze_uncertain_periods(confidence_data: np.ndarray, time_hrs: np.ndarray) -> Dict:
     """Analyze periods of low confidence."""
@@ -136,14 +191,17 @@ def draw_figure(data_scoring, data_biosignals, time_slice, period_scoring=30):
     # Top plot. Algorithm scoring output.
     time_scoring = np.arange(len(data_scoring))*period_scoring/3600
     ax_top.plot(time_scoring, data_scoring, linewidth=0.5, color="grey")
+    ax_top.fill_betweenx(y=[0, 5], x1=time_slice.start/3600/30, x2=time_slice.stop/3600/30, color="red", alpha=0.3)
     ax_top.set_yticks(ticks=range(5), labels=SLEEP_STAGE_LABELS)
     ax_top.set_ylim(4.25,-0.25)
     ax_top.set_xlabel("Time (hrs)")
     ax_top.set_ylabel("Sleep stages")
 
     # Bottom plot. Raw data display.
-    signals, time = data_biosignals[:]
-    ch_labels = data_biosignals.ch_names
+    # data_biosignals = get_sorted_biosignals(data_biosignals)
+    # signals, time = data_biosignals[:]
+    # ch_labels = data_biosignals.ch_names
+    signals, time, ch_labels = get_sorted_biosignals(data_biosignals)
     for idx, signal in enumerate(signals[:,time_slice]):
         # autoscaling 
         if SELECT_AUTOSCALING == "MINMAX":
@@ -154,11 +212,40 @@ def draw_figure(data_scoring, data_biosignals, time_slice, period_scoring=30):
             signal /= c_rms
         ax_bottom.plot(time[time_slice], signal + idx, linewidth=0.75)  # Blue diagonal line
     ax_bottom.set_yticks(range(signals.shape[0]), ch_labels);
+    ax_bottom.set_ylim(signals.shape[0], -1)
+    ax_bottom.set_xlabel("Time (s)")
 
     # Adjust layout
     plt.tight_layout()
     
     return fig
+
+def get_sorted_biosignals(mne_raw_obj):
+    ''' Reorder channels to EOG x2, front EEG, ... , back EEG, EMG x2 '''
+    # Load channel names
+    current_order = mne_raw_obj.ch_names
+    desired_order = []
+    # Add EOG channels
+    desired_order.append("EOG")
+    # Add EEG channels
+    for label in current_order:
+        if "EMG" in label or "EOG" in label:
+            continue
+        else:
+            desired_order.append(label)
+    # Add both EMG channels
+    desired_order.append("EMG1")
+    desired_order.append("EMG2")
+    # Reorder mne raw obj
+    mne_raw_obj = mne_raw_obj.pick(desired_order)
+    # Get data
+    signals, time = mne_raw_obj[:]
+    ch_labels = mne_raw_obj.ch_names
+    # Duplicate EOG
+    signals = np.vstack((signals[0], signals))
+    ch_labels = ["EOG"] + ch_labels
+    # Return
+    return signals, time, ch_labels
 
 if __name__ == "__main__":
     main()

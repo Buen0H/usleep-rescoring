@@ -1,1 +1,3 @@
 mne
+streamlit
+pyEDFlib
