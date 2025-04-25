@@ -24,6 +24,7 @@ TODO
 import streamlit as st
 import numpy as np
 import mne
+import pyedflib
 import tempfile
 from scipy import ndimage
 from typing import Dict
@@ -31,7 +32,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import logging
 
-LOG_LEVEL = logging.DEBUG
+LOG_LEVEL = logging.INFO
 
 SELECT_AUTOSCALING = "MINMAX"
 SELECT_N_UNCERTAIN_PERIOD = 5
@@ -106,20 +107,18 @@ def sidebar_import_data():
                     {scoring_duration:.0f} hours and {scoring_duration%1*60:.0f} minutes.")
             logging.debug(f"Scoring shape: {scoring.shape}")
         elif filename.endswith(".edf"):
-            logging.debug(f"Found raw data file: {filename}")
-            # Create a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".edf") as temp_file:
-                temp_file.write(uploaded_file.read())  # Write the uploaded file content
-                temp_file_path = temp_file.name  # Get the file path
+            logging.info(f"Found raw data file: {filename}")
+            old_import_edf_file(uploaded_file)
 
-            # Read the EDF file using MNE
-            raw_obj = mne.io.read_raw_edf(temp_file_path, preload=True)
+            # ch_labels = raw_obj.ch_names
+            # _, time_sec = raw_obj[:]
+            # st.write(f"Found PSG file with the following signals: {ch_labels} and a duration of \
+            #         {time_sec[-1]/3600:.0f} hours and {time_sec[-1]/3600%1*60:.0f} minutes.")
+            logging.info(f"Old Raw data loaded.")
 
-            ch_labels = raw_obj.ch_names
-            _, time_sec = raw_obj[:]
-            st.write(f"Found PSG file with the following signals: {ch_labels} and a duration of \
-                    {time_sec[-1]/3600:.0f} hours and {time_sec[-1]/3600%1*60:.0f} minutes.")
-            logging.debug(f"Raw data loaded.")
+            logging.info("Trying new import method.")
+            import_edf_file(uploaded_file)
+            logging.info("New Raw data loaded.")
     return []
     #     # Process uploaded files
     #     uncertain_info = analyze_uncertain_periods(scoring, scoring_time_hrs)
@@ -134,6 +133,32 @@ def sidebar_import_data():
     #     fig = draw_figure(data_scoring=naive_scoring, data_biosignals=raw_obj,
     #                     time_slice=visible_time_slice)
     #     st.pyplot(fig)
+
+def old_import_edf_file(uploaded_file):
+    """Import EDF file."""
+    # Create a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".edf") as temp_file:
+        temp_file.write(uploaded_file.read())  # Write the uploaded file content
+        temp_file_path = temp_file.name  # Get the file path
+
+    # Read the EDF file using MNE
+    raw_obj = mne.io.read_raw_edf(temp_file_path, preload=True)
+
+def import_edf_file(uploaded_file):
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+        tmp_filename = tmp_file.name
+        uploaded_file.seek(0)
+        tmp_file.write(uploaded_file.read())
+
+        edf_data = pyedflib.EdfReader(tmp_filename)
+        num_channels = edf_data.signals_in_file
+        channel_names = edf_data.getSignalLabels()
+        raw_data = []
+        min_length = float('inf')  # Initialize minimum length with a large value
+        for channel in range(num_channels):
+            channel_data = edf_data.readSignal(channel)
+            raw_data.append(channel_data)
+            min_length = min(min_length, len(channel_data))
 
 def analyze_uncertain_periods(confidence_data: np.ndarray, time_hrs: np.ndarray) -> Dict:
     """Analyze periods of low confidence."""
