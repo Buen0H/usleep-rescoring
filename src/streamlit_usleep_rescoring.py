@@ -27,6 +27,7 @@ import mne
 import pyedflib
 import tempfile
 from scipy import ndimage
+from scipy.signal import decimate
 from typing import Dict
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -57,37 +58,28 @@ def main():
         # }
     )
     st.title("U-Sleep Rescoring Tool")
+    # Initialize session state
+    init_session_state()
     # Create mechanism to import files.
-    data = sidebar_import_data()
-    # Check if data is None
-    if data is None:
+    err = sidebar_import_data()
+    if err == False:
         st.warning("Please upload files to continue with rescoring.")
-    else:
-        # Process uploaded files
-        data["scoring_processed"] = analyze_uncertain_periods(data["scoring"])
-        # Plot the uploaded files
-        fig = draw_figure_init(data)
-        # # Process uploaded files
-        # uncertain_info = analyze_uncertain_periods(scoring, scoring_time_hrs)
-        # naive_scoring = np.argmax(scoring, axis=1)
-        # # Look through uncertain periods
-        # for uncertain_period in uncertain_info["uncertain_periods"]:
-        #     slice_start = int(uncertain_period["start_hour"]*3600)*FS_PSG
-        #     slice_stop = int(slice_start + 30)*FS_PSG
-        #     visible_time_slice = np.s_[slice_start:slice_stop]
-        #     break
-        # # Plot figures
-        # fig = draw_figure(data_scoring=naive_scoring, data_biosignals=raw_obj,
-        #                 time_slice=visible_time_slice)
-        st.pyplot(fig)
-        # Buttons to navigate through the data
-        rewind, back, forward, fast_forward = st.columns(4)
-        rewind.button("Rewind", key="rewind", use_container_width=True)
-        back.button("Back", key="back", use_container_width=True)
-        forward.button("Forward", key="forward", use_container_width=True)
-        fast_forward.button("Fast forward", key="fast_forward", use_container_width=True)
+        return
+    # Process uploaded files
+    st.session_state.data["scoring_processed"] = analyze_uncertain_periods(st.session_state.data["scoring"])
+    # Process biosignals
+    process_biosignals(downsample_ratio=10)
+    # Plot the uploaded files
+    fig = draw_figure(n_epoch=st.session_state["current_epoch"])
+    st.pyplot(fig)
+    # Buttons to navigate through the data
+    rewind, back, forward, fast_forward = st.columns(4)
+    rewind.button("Rewind", key="rewind", use_container_width=True, on_click=callback_counter, args=(-2,))
+    back.button("Back", key="back", use_container_width=True, on_click=callback_counter, args=(-1,))
+    forward.button("Forward", key="forward", use_container_width=True, on_click=callback_counter, args=(+1,))
+    fast_forward.button("Fast forward", key="fast_forward", use_container_width=True, on_click=callback_counter, args=(+2,))
 
-def logging_init():
+def init_logging():
     """Initialize logging."""
     logging.basicConfig(
         level=LOG_LEVEL,
@@ -97,6 +89,13 @@ def logging_init():
         ]
     )
     logging.info("Logging initialized.")
+
+def init_session_state():
+    """Initialize session state."""
+    if "current_epoch" not in st.session_state:
+        st.session_state["current_epoch"] = 0
+    if "data" not in st.session_state:
+        st.session_state["scoring"] = None 
 
 def sidebar_import_data():
     """Sidebar for importing data."""
@@ -112,7 +111,7 @@ def sidebar_import_data():
         )
     # Check if files are uploaded
     if uploaded_files == []:
-        return None
+        return False
     else:
         logging.info("Files uploaded.")
     # Import uploaded files
@@ -142,19 +141,21 @@ def sidebar_import_data():
     if unpacked_data is None:
         logging.warning("No files uploaded.")
         st.sidebar.warning("Please upload files to continue with rescoring.")
-        return None
+        return False
     elif unpacked_data["raw_obj"] is None:
         logging.warning("No raw data uploaded.")
         st.sidebar.warning("Please upload PSG data.")
-        return None
+        return False
     elif unpacked_data["scoring"] is None:
         logging.warning("No scoring data uploaded.")
         st.sidebar.warning("Please scoring file.")
-        return None
+        return False
     else:
+        # Store data in session state
+        st.session_state.data = unpacked_data
         # Display data
         st.sidebar.success("Files uploaded successfully.")
-        return unpacked_data
+        return True
 
 def import_edf_file(uploaded_file):
     """Import EDF file."""
@@ -212,64 +213,24 @@ def analyze_uncertain_periods(confidence_data: np.ndarray) -> Dict:
         "time_hrs": time_hrs,  # 30 seconds per epoch
     }
 
-def draw_figure_init(data_dict: Dict):
-    '''
-    INPUTS
-    period_scoring (int) - scoring sampling period in seconds.
-    '''
-    # Create the figure and GridSpec layout
-    fig = plt.figure(figsize=(18, 7), dpi=300)
-    gs = gridspec.GridSpec(2, 1, height_ratios=[1, 5])  # 1 unit for top, 5 for bottom
-
-    # Create the top and bottom axes
-    ax_top = fig.add_subplot(gs[0])
-    ax_bottom = fig.add_subplot(gs[1])
-
-    # Top plot. Algorithm scoring output.
-    scoring_data = data_dict["scoring_processed"]
-    scoring_naive = scoring_data["scoring_naive"]
-    time = scoring_data["time_hrs"]
-    ax_top.plot(time, scoring_naive, linewidth=1, color="grey")
-    # Highlight uncertain periods.
-    uncertain_periods = scoring_data["uncertain_periods"]
-    for uncertain_period in uncertain_periods:
-        start_hour = uncertain_period["start_hour"]
-        end_hour = uncertain_period["end_hour"] + 30 / 3600
-        ax_top.fill_betweenx(y=[0, 5], x1=start_hour, x2=end_hour, color="red", alpha=0.3)
-    
-    ax_top.set_yticks(ticks=range(5), labels=SLEEP_STAGE_LABELS)
-    ax_top.set_ylim(4.25,-0.25)
-    ax_top.set_xlabel("Time (hrs)")
-    ax_top.set_ylabel("Sleep stages")
-
-    # # Bottom plot. Raw data display.
-    # # data_biosignals = get_sorted_biosignals(data_biosignals)
-    # # signals, time = data_biosignals[:]
-    # # ch_labels = data_biosignals.ch_names
-    # signals, time, ch_labels = get_sorted_biosignals(data_biosignals)
-    # for idx, signal in enumerate(signals[:,time_slice]):
-    #     # autoscaling 
-    #     if SELECT_AUTOSCALING == "MINMAX":
-    #         c_minmax = signal.max() - signal.min()
-    #         signal /= c_minmax
-    #     elif SELECT_AUTOSCALING == "RMS":
-    #         c_rms = np.sqrt(np.mean(signal**2))
-    #         signal /= c_rms
-    #     ax_bottom.plot(time[time_slice], signal + idx, linewidth=0.75)  # Blue diagonal line
-    # ax_bottom.set_yticks(range(signals.shape[0]), ch_labels);
-    # ax_bottom.set_ylim(signals.shape[0], -1)
-    # ax_bottom.set_xlabel("Time (s)")
-
-    # Adjust layout
-    plt.tight_layout()
-    
-    return fig
-
-def draw_figure_update(fig, slice_window):
-    axs = fig.get_axes()
-    ax_top = axs[0]
-    ax_top.fill_betweenx(y=[0, 5], x1=slice_window.start/3600/30, x2=slice_window.stop/3600/30, color="red", alpha=0.3)
-    st.pyplot(fig)
+def process_biosignals(downsample_ratio: int =10):
+    """Process biosignals for visualization."""
+    # Get the raw data
+    data_biosignals = st.session_state.data["raw_obj"]
+    fs_biosignals = data_biosignals.info["sfreq"]
+    # Get the sorted biosignals
+    signals, time, ch_labels = get_sorted_biosignals(data_biosignals)
+    # Downsample the signals
+    signals_downsampled = decimate(signals, downsample_ratio, axis=1)
+    time_downsampled = np.arange(signals_downsampled.shape[1]) / (fs_biosignals / downsample_ratio)
+    # Create a dictionary to store the processed data
+    processed_data = {
+        "signals": signals_downsampled,
+        "time": time_downsampled,
+        "ch_labels": ch_labels,
+        "fs": fs_biosignals / downsample_ratio,
+    }
+    st.session_state.data["processed_biosignals"] = processed_data
 
 def get_sorted_biosignals(mne_raw_obj):
     ''' Reorder channels to EOG x2, front EEG, ... , back EEG, EMG x2 '''
@@ -298,33 +259,82 @@ def get_sorted_biosignals(mne_raw_obj):
     # Return
     return signals, time, ch_labels
 
+def draw_figure(n_epoch: int = 0, auto_scaling: str = "MINMAX"):
+    '''
+    INPUTS
+    period_scoring (int) - scoring sampling period in seconds.
+    '''
+    # Create the figure and GridSpec layout
+    fig = plt.figure(figsize=(18, 7), dpi=300)
+    gs = gridspec.GridSpec(2, 1, height_ratios=[1, 5])  # 1 unit for top, 5 for bottom
+
+    # Create the top and bottom axes
+    ax_top = fig.add_subplot(gs[0])
+    ax_bottom = fig.add_subplot(gs[1])
+
+    # Top plot. Algorithm scoring output.
+    scoring_data = st.session_state.data["scoring_processed"]
+    scoring_naive = scoring_data["scoring_naive"]
+    time = scoring_data["time_hrs"]
+    ax_top.plot(time, scoring_naive, linewidth=1, color="grey")
+    # Highlight uncertain periods.
+    uncertain_periods = scoring_data["uncertain_periods"]
+    for uncertain_period in uncertain_periods:
+        start_hour = uncertain_period["start_hour"]
+        end_hour = uncertain_period["end_hour"] + 30 / 3600
+        ax_top.fill_betweenx(y=[0, 5], x1=start_hour, x2=end_hour, color="red", alpha=0.3)
+    # Draw line for the current epoch on the top plot.
+    current_epoch = st.session_state.data["scoring_processed"]["time_hrs"][n_epoch]
+    ax_top.axvline(x=current_epoch, color="blue", linestyle="--", linewidth=1)
+    # Axes formatting.
+    ax_top.set_yticks(ticks=range(5), labels=SLEEP_STAGE_LABELS)
+    ax_top.set_ylim(4.25,-0.25)
+    ax_top.set_xlabel("Time (hrs)")
+    ax_top.set_ylabel("Sleep stages")
+    plt.tight_layout()
+
+    # Bottom plot. Raw data display.
+    # Get the processed biosignals
+    data_biosignals = st.session_state.data["processed_biosignals"]
+    signals = data_biosignals["signals"]
+    time = data_biosignals["time"]
+    ch_labels = data_biosignals["ch_labels"]
+    # Get the time slice for the current epoch
+    time_slice = np.s_[int(n_epoch * 30 * data_biosignals["fs"]):int((n_epoch + 1) * 30 * data_biosignals["fs"])]
+    # Plot the signals
+    for idx, signal in enumerate(signals[:, time_slice]):
+        # Autoscaling
+        if auto_scaling == "MINMAX":
+            c_minmax = signal.max() - signal.min()
+            signal /= c_minmax
+        elif auto_scaling == "RMS":
+            c_rms = np.sqrt(np.mean(signal**2))
+            signal /= c_rms
+        ax_bottom.plot(time[time_slice], signal + idx, linewidth=0.75)  # Blue diagonal line
+    # Set y-ticks and labels
+    ax_bottom.set_yticks(range(signals.shape[0]), ch_labels)
+    ax_bottom.set_ylim(signals.shape[0], -1)
+    ax_bottom.set_xlabel("Time (s)")
+
+    return fig
+    
+def callback_counter(action_type: int):
+    """Callback function for button clicks."""
+    # Get the current epoch from session state
+    if action_type == -1: # Rewind
+        current_epoch = st.session_state["current_epoch"] - 1
+    elif action_type == +1: # Forward
+        current_epoch = st.session_state["current_epoch"] + 1
+    # Update the current epoch in session state
+    st.session_state["current_epoch"] = current_epoch
+    # Update the figure in the Streamlit app
+    # st.session_state["fig"] = fig
+    # st.pyplot(fig)
+
 if __name__ == "__main__":
     # Initialize logging
-    logging_init()
+    init_logging()
     # Run the main function
     main()
 
-
-# slice_start = int(uncertain_info["uncertain_periods"][SELECT_N_UNCERTAIN_PERIOD]["start_hour"]*3600 + SELECT_N_EPOCH*30)*500
-# slice_stop = slice_start + 30*500
-# visible_time_slice = np.s_[slice_start:slice_stop]
-
-# plt.figure(figsize=(15,6), dpi=300)
-# for idx, signal in enumerate(data):
-#     # (x,y) correspond to the visibile signal for plotting.
-#     x = time_sec[visible_time_slice]    
-#     y = signal[visible_time_slice]
-
-#     # autoscaling 
-#     y_rms = np.sqrt(np.mean(y**2))
-
-#     if SELECT_AUTOSCALING == "MINMAX":
-#         c_minmax = y.max() - y.min()
-#         y /= c_minmax
-#     elif SELECT_AUTOSCALING == "RMS":
-#         c_rms = np.sqrt(np.mean(y**2))
-#         y /= c_rms
-    
-#     plt.plot(x, y + idx, linewidth=0.75)
-# plt.yticks(range(data.shape[0]), ch_labels);
             
