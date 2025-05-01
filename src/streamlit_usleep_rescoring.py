@@ -29,6 +29,8 @@ import tempfile
 from scipy import ndimage
 from scipy.signal import decimate
 from typing import Dict
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import logging
@@ -65,13 +67,14 @@ def main():
     if err == False:
         st.warning("Please upload files to continue with rescoring.")
         return
-    # Process uploaded files
-    st.session_state.data["scoring_processed"] = analyze_uncertain_periods(st.session_state.data["scoring"])
-    # Process biosignals
-    process_biosignals(downsample_ratio=10)
+    # Process uploaded files only once.
+    if "scoring_processed" not in st.session_state.data:
+        st.session_state.data["scoring_processed"] = analyze_uncertain_periods(st.session_state.data["scoring"])
+    # Process biosignals only once.
+    st.session_state.data["processed_biosignals"] = process_biosignals(downsample_ratio=10)
     # Plot the uploaded files
     fig = draw_figure(n_epoch=st.session_state["current_epoch"])
-    st.pyplot(fig)
+    st.pyplot(fig, clear_figure=True)
     # Buttons to navigate through the data
     rewind, back, forward, fast_forward = st.columns(4)
     rewind.button("Rewind", key="rewind", use_container_width=True, on_click=callback_counter, args=(-2,))
@@ -157,6 +160,7 @@ def sidebar_import_data():
         st.sidebar.success("Files uploaded successfully.")
         return True
 
+@st.cache_data
 def import_edf_file(uploaded_file):
     """Import EDF file."""
     # Create a temporary file
@@ -213,7 +217,8 @@ def analyze_uncertain_periods(confidence_data: np.ndarray) -> Dict:
         "time_hrs": time_hrs,  # 30 seconds per epoch
     }
 
-def process_biosignals(downsample_ratio: int =10):
+@st.cache_data
+def process_biosignals(downsample_ratio: int = 5):
     """Process biosignals for visualization."""
     # Get the raw data
     data_biosignals = st.session_state.data["raw_obj"]
@@ -222,6 +227,7 @@ def process_biosignals(downsample_ratio: int =10):
     signals, time, ch_labels = get_sorted_biosignals(data_biosignals)
     # Downsample the signals
     signals_downsampled = decimate(signals, downsample_ratio, axis=1)
+    signals_downsampled = decimate(signals_downsampled, downsample_ratio, axis=1)
     time_downsampled = np.arange(signals_downsampled.shape[1]) / (fs_biosignals / downsample_ratio)
     # Create a dictionary to store the processed data
     processed_data = {
@@ -230,7 +236,7 @@ def process_biosignals(downsample_ratio: int =10):
         "ch_labels": ch_labels,
         "fs": fs_biosignals / downsample_ratio,
     }
-    st.session_state.data["processed_biosignals"] = processed_data
+    return processed_data
 
 def get_sorted_biosignals(mne_raw_obj):
     ''' Reorder channels to EOG x2, front EEG, ... , back EEG, EMG x2 '''
@@ -265,7 +271,7 @@ def draw_figure(n_epoch: int = 0, auto_scaling: str = "MINMAX"):
     period_scoring (int) - scoring sampling period in seconds.
     '''
     # Create the figure and GridSpec layout
-    fig = plt.figure(figsize=(18, 7), dpi=300)
+    fig = plt.figure(figsize=(18, 7))
     gs = gridspec.GridSpec(2, 1, height_ratios=[1, 5])  # 1 unit for top, 5 for bottom
 
     # Create the top and bottom axes
@@ -297,20 +303,23 @@ def draw_figure(n_epoch: int = 0, auto_scaling: str = "MINMAX"):
     # Get the processed biosignals
     data_biosignals = st.session_state.data["processed_biosignals"]
     signals = data_biosignals["signals"]
-    time = data_biosignals["time"]
+    # time = data_biosignals["time"]
+    # fs = data_biosignals["fs"]
+    # logging.info(f"Sampling frequency: {fs}")
     ch_labels = data_biosignals["ch_labels"]
-    # Get the time slice for the current epoch
-    time_slice = np.s_[int(n_epoch * 30 * data_biosignals["fs"]):int((n_epoch + 1) * 30 * data_biosignals["fs"])]
-    # Plot the signals
-    for idx, signal in enumerate(signals[:, time_slice]):
-        # Autoscaling
-        if auto_scaling == "MINMAX":
-            c_minmax = signal.max() - signal.min()
-            signal /= c_minmax
-        elif auto_scaling == "RMS":
-            c_rms = np.sqrt(np.mean(signal**2))
-            signal /= c_rms
-        ax_bottom.plot(time[time_slice], signal + idx, linewidth=0.75)  # Blue diagonal line
+    # # Get the time slice for the current epoch
+    # time_slice = np.s_[int(n_epoch * 30 * fs):int((n_epoch + 1) * 30 * fs)]
+    # # Plot the signals
+    # for idx, signal in enumerate(signals[:, time_slice]):
+    #     # Autoscaling
+    #     if auto_scaling == "MINMAX":
+    #         c_minmax = signal.max() - signal.min()
+    #         signal /= c_minmax
+    #     elif auto_scaling == "RMS":
+    #         c_rms = np.sqrt(np.mean(signal**2))
+    #         signal /= c_rms
+    #     ax_bottom.plot(time[time_slice], signal + idx, linewidth=0.75)
+    #     break
     # Set y-ticks and labels
     ax_bottom.set_yticks(range(signals.shape[0]), ch_labels)
     ax_bottom.set_ylim(signals.shape[0], -1)
