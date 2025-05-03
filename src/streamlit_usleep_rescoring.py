@@ -169,7 +169,7 @@ def import_edf_file(uploaded_file):
         temp_file_path = temp_file.name  # Get the file path
 
     # Read the EDF file using MNE
-    raw_obj = mne.io.read_raw_edf(temp_file_path, preload=True)
+    raw_obj = mne.io.read_raw_edf(temp_file_path, preload=False)
     return raw_obj
 
 def analyze_uncertain_periods(confidence_data: np.ndarray) -> Dict:
