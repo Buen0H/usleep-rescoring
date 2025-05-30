@@ -22,9 +22,10 @@ TODO
 '''
 
 import streamlit as st
+import boto3
+from io import BytesIO
 import numpy as np
 import mne
-import pyedflib
 import tempfile
 from scipy import ndimage
 from scipy.signal import decimate
@@ -63,17 +64,15 @@ def main():
     # Initialize session state
     init_session_state()
     # Create mechanism to import files.
-    err = sidebar_import_data()
-    if err == False:
-        st.warning("Please upload files to continue with rescoring.")
+    data = sidebar_import_data()
+    if not data:
+        logging.error("No data loaded from S3.")
+        st.warning("Please select files for upload to continue with rescoring.")
         return
-    # Process uploaded files only once.
-    if "scoring_processed" not in st.session_state.data:
-        st.session_state.data["scoring_processed"] = analyze_uncertain_periods(st.session_state.data["scoring"])
-    # Process biosignals only once.
-    st.session_state.data["processed_biosignals"] = process_biosignals(downsample_ratio=10)
+    # Process uploaded files.
+    data = process_data(data, subject_id=st.session_state["subject_id"])
     # Plot the uploaded files
-    fig = draw_figure(n_epoch=st.session_state["current_epoch"])
+    fig = draw_figure(data, n_epoch=st.session_state["current_epoch"])
     st.pyplot(fig, clear_figure=True)
     # Buttons to navigate through the data
     rewind, back, forward, fast_forward = st.columns(4)
@@ -95,82 +94,99 @@ def init_logging():
 
 def init_session_state():
     """Initialize session state."""
+    if "subject_id" not in st.session_state:
+        st.session_state["subject_id"] = None
     if "current_epoch" not in st.session_state:
         st.session_state["current_epoch"] = 0
-    if "data" not in st.session_state:
-        st.session_state["scoring"] = None 
+    
+@st.cache_resource
+def get_s3_connection():
+    """Initialize AWS session state."""
+    # Load credentials from secrets.toml
+    s3_client = boto3.client(
+        "s3",
+        aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
+        region_name=st.secrets["AWS_DEFAULT_REGION"]
+    )
+    bucket_name = st.secrets["AWS_S3_BUCKET_NAME"]
+    # List directories in the bucket
+    response = s3_client.list_objects_v2(Bucket=bucket_name, Delimiter="/")
+    bucket_directories = [prefix["Prefix"] for prefix in response.get("CommonPrefixes", [])]
+    if not bucket_directories:
+        logging.error("Bucket is empty.")
+        return None, None, None
+    return s3_client, bucket_name, bucket_directories
+
+@st.cache_data
+def load_data_from_s3(folder_name):
+    """Load data from S3 bucket."""
+    # Get the S3 client and bucket name
+    s3_client, bucket_name, _ = get_s3_connection()
+    # List files in the selected folder
+    response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=folder_name)
+    files = [content["Key"] for content in response.get("Contents", [])]
+    # Process uploaded files
+    data = {}
+    for file_key in files:
+        # Fetch the file from S3
+        obj = s3_client.get_object(Bucket=bucket_name, Key=file_key)
+        # Read the file content according to its type
+        if file_key.endswith(".npy"):
+            logging.info(f"Attempting to load scoring file: {file_key}")
+            data["scoring"] = np.load(BytesIO(obj["Body"].read()))
+        elif file_key.endswith(".edf"):
+            logging.info(f"Attempting to load PSG file: {file_key}")
+            # Read the EDF file using MNE
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".edf") as tmp_file:
+                tmp_file.write(obj["Body"].read())
+                tmp_file.flush()  # Ensure the file is written
+                # Read the EDF file using MNE
+                data["raw_obj"] = mne.io.read_raw_edf(tmp_file.name, preload=False, verbose=False)
+        else:
+            logging.warning(f"File {file_key} is not a valid EDF or NPY file.")
+    return data
 
 def sidebar_import_data():
     """Sidebar for importing data."""
+    # Initialize AWS client
+    s3_client, _, bucket_directories = get_s3_connection()
+    if not s3_client:
+        logging.error("Failed to connect to AWS S3.")
+        st.sidebar.error("Error connecting to AWS.")
+        return None
+    logging.info("Connected to AWS S3 successfully.")
+
     # Populate sidebar with file upload options
     with st.sidebar:
         st.header("Import Data")
-        st.write("The raw data should be in EDF format, and the U-Sleep scoring should be in NPY format.")
-        st.write("Please ensure that both files are from the same experiment.")
-        uploaded_files = st.file_uploader(label="Upload raw data and U-Sleep scoring.",
-            type=[".npy", ".edf"],
-            accept_multiple_files=True,
-            label_visibility="visible",
-        )
-    # Check if files are uploaded
-    if uploaded_files == []:
-        return False
+        folder_choice = st.selectbox("Select folder", bucket_directories, index=None)
+    
+    if folder_choice:
+        logging.info(f"Selected folder: {folder_choice}")
+        # Load data from the selected folder
+        data = load_data_from_s3(folder_choice)
+        if not data:
+            logging.error("No files found in the selected folder.")
+            st.sidebar.error("Error connecting to AWS.")
+            return None
+        # Check if files are valid
+        if "raw_obj" not in data:
+            logging.error("No raw data uploaded.")
+            st.sidebar.error("Error loading data from AWS.")
+            return None
+        elif "scoring" not in data:
+            logging.error("No raw data uploaded.")
+            st.sidebar.error("Error loading data from AWS.")
+            return None
+        # Return data
+        subject_id = folder_choice.split("/")[-2]  # Assuming folder structure is like 'bucket/subject_id/'
+        st.session_state["subject_id"] = subject_id
+        logging.info(f"Data loaded successfully for subject {subject_id}.")
+        return data
     else:
-        logging.info("Files uploaded.")
-    # Import uploaded files
-    unpacked_data = {
-        "raw_obj": None,
-        "scoring": None,
-    }
-    for uploaded_file in uploaded_files:
-        filename = uploaded_file.name
-        if filename.endswith(".npy"):
-            logging.debug(f"Found scoring file: {filename}")
-            unpacked_data["scoring"] = np.load(uploaded_file)
-            # Every data point corresponds to a 30 second epoch; convert to hours.
-            scoring_time_hrs = np.arange(unpacked_data["scoring"].shape[0]) * 30 / 3600 
-            scoring_duration = scoring_time_hrs[-1]
-            logging.info(f"Loaded scoring file labeled {filename} with " + \
-                    f"{scoring_duration:.0f} hours and {scoring_duration%1*60:.0f} minutes.")
-        elif filename.endswith(".edf"):
-            logging.info(f"Found raw data file: {filename}")
-            unpacked_data["raw_obj"] = import_edf_file(uploaded_file)
-
-            ch_labels = unpacked_data["raw_obj"].ch_names
-            _, time_sec = unpacked_data["raw_obj"][:]
-            logging.info(f"Loaded PSG file with the following signals: {ch_labels} and a duration of " + \
-                    f"{time_sec[-1]/3600:.0f} hours and {time_sec[-1]/3600%1*60:.0f} minutes.")
-    # Check if both files are uploaded
-    if unpacked_data is None:
-        logging.warning("No files uploaded.")
-        st.sidebar.warning("Please upload files to continue with rescoring.")
-        return False
-    elif unpacked_data["raw_obj"] is None:
-        logging.warning("No raw data uploaded.")
-        st.sidebar.warning("Please upload PSG data.")
-        return False
-    elif unpacked_data["scoring"] is None:
-        logging.warning("No scoring data uploaded.")
-        st.sidebar.warning("Please scoring file.")
-        return False
-    else:
-        # Store data in session state
-        st.session_state.data = unpacked_data
-        # Display data
-        st.sidebar.success("Files uploaded successfully.")
-        return True
-
-@st.cache_data
-def import_edf_file(uploaded_file):
-    """Import EDF file."""
-    # Create a temporary file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".edf") as temp_file:
-        temp_file.write(uploaded_file.read())  # Write the uploaded file content
-        temp_file_path = temp_file.name  # Get the file path
-
-    # Read the EDF file using MNE
-    raw_obj = mne.io.read_raw_edf(temp_file_path, preload=False)
-    return raw_obj
+        st.sidebar.warning("Please select a folder.")
+        return None
 
 def analyze_uncertain_periods(confidence_data: np.ndarray) -> Dict:
     """Analyze periods of low confidence."""
@@ -217,13 +233,37 @@ def analyze_uncertain_periods(confidence_data: np.ndarray) -> Dict:
         "time_hrs": time_hrs,  # 30 seconds per epoch
     }
 
-@st.cache_data
-def process_biosignals(downsample_ratio: int = 5):
+def get_sorted_biosignals(obj: mne.io.Raw) -> tuple:
+    ''' Reorder channels to EOG x2, front EEG, ... , back EEG, EMG x2 '''
+    # Load channel names
+    current_order = obj.ch_names
+    desired_order = []
+    # Add EOG channels
+    desired_order.append("EOG")
+    # Add EEG channels
+    for label in current_order:
+        if "EMG" in label or "EOG" in label:
+            continue
+        else:
+            desired_order.append(label)
+    # Add both EMG channels
+    desired_order.append("EMG1")
+    desired_order.append("EMG2")
+    # Reorder mne raw obj
+    obj = obj.pick(desired_order)
+    # Get data
+    signals, time = obj[:]
+    ch_labels = obj.ch_names
+    # Duplicate EOG
+    signals = np.vstack((signals[0], signals))
+    ch_labels = ["EOG"] + ch_labels
+    # Return
+    return signals, time, ch_labels
+
+def process_biosignals(data_biosignals: mne.io.Raw, downsample_ratio: int = 5):
     """Process biosignals for visualization."""
-    # Get the raw data
-    data_biosignals = st.session_state.data["raw_obj"]
+    # Get from the raw data
     fs_biosignals = data_biosignals.info["sfreq"]
-    # Get the sorted biosignals
     signals, time, ch_labels = get_sorted_biosignals(data_biosignals)
     # Downsample the signals
     signals_downsampled = decimate(signals, downsample_ratio, axis=1)
@@ -238,34 +278,23 @@ def process_biosignals(downsample_ratio: int = 5):
     }
     return processed_data
 
-def get_sorted_biosignals(mne_raw_obj):
-    ''' Reorder channels to EOG x2, front EEG, ... , back EEG, EMG x2 '''
-    # Load channel names
-    current_order = mne_raw_obj.ch_names
-    desired_order = []
-    # Add EOG channels
-    desired_order.append("EOG")
-    # Add EEG channels
-    for label in current_order:
-        if "EMG" in label or "EOG" in label:
-            continue
-        else:
-            desired_order.append(label)
-    # Add both EMG channels
-    desired_order.append("EMG1")
-    desired_order.append("EMG2")
-    # Reorder mne raw obj
-    mne_raw_obj = mne_raw_obj.pick(desired_order)
-    # Get data
-    signals, time = mne_raw_obj[:]
-    ch_labels = mne_raw_obj.ch_names
-    # Duplicate EOG
-    signals = np.vstack((signals[0], signals))
-    ch_labels = ["EOG"] + ch_labels
-    # Return
-    return signals, time, ch_labels
+@st.cache_data
+def process_data(_data, subject_id):
+    # Process U-Sleep scoring data
+    data = _data.copy()
+    if "scoring_processed" not in data:
+        data["scoring_processed"] = analyze_uncertain_periods(data["scoring"])
+    else:
+        logging.warning("Scoring data already processed. Skipping reprocessing.")
+    # Process biosignals for visualization
+    if "processed_biosignals" not in data:
+        data["processed_biosignals"] = process_biosignals(data["raw_obj"], downsample_ratio=10)
+    else:
+        logging.warning("Biosignals data already processed. Skipping reprocessing.")
+    # Return processed data
+    return data
 
-def draw_figure(n_epoch: int = 0, auto_scaling: str = "MINMAX"):
+def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "MINMAX"):
     '''
     INPUTS
     period_scoring (int) - scoring sampling period in seconds.
@@ -279,7 +308,7 @@ def draw_figure(n_epoch: int = 0, auto_scaling: str = "MINMAX"):
     ax_bottom = fig.add_subplot(gs[1])
 
     # Top plot. Algorithm scoring output.
-    scoring_data = st.session_state.data["scoring_processed"]
+    scoring_data = data["scoring_processed"]
     scoring_naive = scoring_data["scoring_naive"]
     time = scoring_data["time_hrs"]
     ax_top.plot(time, scoring_naive, linewidth=1, color="grey")
@@ -290,7 +319,7 @@ def draw_figure(n_epoch: int = 0, auto_scaling: str = "MINMAX"):
         end_hour = uncertain_period["end_hour"] + 30 / 3600
         ax_top.fill_betweenx(y=[0, 5], x1=start_hour, x2=end_hour, color="red", alpha=0.3)
     # Draw line for the current epoch on the top plot.
-    current_epoch = st.session_state.data["scoring_processed"]["time_hrs"][n_epoch]
+    current_epoch = data["scoring_processed"]["time_hrs"][n_epoch]
     ax_top.axvline(x=current_epoch, color="blue", linestyle="--", linewidth=1)
     # Axes formatting.
     ax_top.set_yticks(ticks=range(5), labels=SLEEP_STAGE_LABELS)
@@ -301,30 +330,28 @@ def draw_figure(n_epoch: int = 0, auto_scaling: str = "MINMAX"):
 
     # Bottom plot. Raw data display.
     # Get the processed biosignals
-    data_biosignals = st.session_state.data["processed_biosignals"]
+    data_biosignals = data["processed_biosignals"]
     signals = data_biosignals["signals"]
-    # time = data_biosignals["time"]
-    # fs = data_biosignals["fs"]
+    time = data_biosignals["time"]
+    fs = data_biosignals["fs"]
     # logging.info(f"Sampling frequency: {fs}")
     ch_labels = data_biosignals["ch_labels"]
-    # # Get the time slice for the current epoch
-    # time_slice = np.s_[int(n_epoch * 30 * fs):int((n_epoch + 1) * 30 * fs)]
-    # # Plot the signals
-    # for idx, signal in enumerate(signals[:, time_slice]):
-    #     # Autoscaling
-    #     if auto_scaling == "MINMAX":
-    #         c_minmax = signal.max() - signal.min()
-    #         signal /= c_minmax
-    #     elif auto_scaling == "RMS":
-    #         c_rms = np.sqrt(np.mean(signal**2))
-    #         signal /= c_rms
-    #     ax_bottom.plot(time[time_slice], signal + idx, linewidth=0.75)
-    #     break
+    # Get the time slice for the current epoch
+    time_slice = np.s_[int(n_epoch * 30 * fs):int((n_epoch + 1) * 30 * fs)]
+    # Plot the signals
+    for idx, signal in enumerate(signals[:, time_slice]):
+        # Autoscaling
+        if auto_scaling == "MINMAX":
+            c_minmax = signal.max() - signal.min()
+            signal /= c_minmax
+        elif auto_scaling == "RMS":
+            c_rms = np.sqrt(np.mean(signal**2))
+            signal /= c_rms
+        ax_bottom.plot(time[time_slice], signal + idx, linewidth=0.75)
     # Set y-ticks and labels
     ax_bottom.set_yticks(range(signals.shape[0]), ch_labels)
     ax_bottom.set_ylim(signals.shape[0], -1)
     ax_bottom.set_xlabel("Time (s)")
-
     return fig
     
 def callback_counter(action_type: int):

@@ -1,3 +1,4 @@
 mne
 streamlit
 pyEDFlib
+boto3
