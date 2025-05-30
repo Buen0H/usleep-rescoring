@@ -78,10 +78,13 @@ def main():
     st.pyplot(fig, clear_figure=True)
     # Buttons to navigate through the data
     rewind, back, forward, fast_forward = st.columns(4)
-    rewind.button("Rewind", key="rewind", use_container_width=True, on_click=callback_counter, args=(-2,))
-    back.button("Back", key="back", use_container_width=True, on_click=callback_counter, args=(-1,))
+    current_epoch = st.session_state["current_epoch"]
+    uncertain_epochs = data["scoring_processed"]["n_uncertain_periods"]
+
+    rewind.button("Rewind", key="rewind", use_container_width=True, on_click=callback_counter, args=(-2), disabled=True)
+    back.button("Back", key="back", use_container_width=True, on_click=callback_counter, args=(-1,), disabled=(current_epoch == 0))
     forward.button("Forward", key="forward", use_container_width=True, on_click=callback_counter, args=(+1,))
-    fast_forward.button("Fast forward", key="fast_forward", use_container_width=True, on_click=callback_counter, args=(+2,))
+    fast_forward.button("Fast forward", key="fast_forward", use_container_width=True, on_click=callback_counter, args=(+2), disabled=True)
 
 def init_logging():
     """Initialize logging."""
