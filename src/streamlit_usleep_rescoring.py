@@ -70,7 +70,9 @@ def main():
         st.warning("Please select files for upload to continue with rescoring.")
         return
     # Process uploaded files.
-    data = process_data(data, subject_id=st.session_state["subject_id"])
+    subject_id = st.session_state["subject_id"]
+    n_epoch = st.session_state["current_epoch"]
+    data = process_data(data, subject_id, n_epoch)
     # Plot the uploaded files
     fig = draw_figure(data, n_epoch=st.session_state["current_epoch"])
     st.pyplot(fig, clear_figure=True)
@@ -260,35 +262,35 @@ def get_sorted_biosignals(obj: mne.io.Raw) -> tuple:
     # Return
     return signals, time, ch_labels
 
-def process_biosignals(data_biosignals: mne.io.Raw, downsample_ratio: int = 5):
+def process_biosignals(raw_obj: mne.io.Raw, n_epoch: int, downsample_ratio: int = 5):
     """Process biosignals for visualization."""
-    # Get from the raw data
-    fs_biosignals = data_biosignals.info["sfreq"]
-    signals, time, ch_labels = get_sorted_biosignals(data_biosignals)
-    # Downsample the signals
-    signals_downsampled = decimate(signals, downsample_ratio, axis=1)
-    signals_downsampled = decimate(signals_downsampled, downsample_ratio, axis=1)
-    time_downsampled = np.arange(signals_downsampled.shape[1]) / (fs_biosignals / downsample_ratio)
+    # Get the sampling frequency from the raw data
+    fs = raw_obj.info["sfreq"]
+    # Get the time slice for the current epoch
+    time_start = n_epoch * 30
+    time_stop = (n_epoch + 1) * 30
+    raw_selection = raw_obj.copy().crop(tmin=time_start, tmax=time_stop)
+    # # Downsample the signals
+    # signals_downsampled = decimate(signals, downsample_ratio, axis=1)
+    # signals_downsampled = decimate(signals_downsampled, downsample_ratio, axis=1)
+    # time_downsampled = np.arange(signals_downsampled.shape[1]) / (fs_biosignals / downsample_ratio)
     # Create a dictionary to store the processed data
     processed_data = {
-        "signals": signals_downsampled,
-        "time": time_downsampled,
-        "ch_labels": ch_labels,
-        "fs": fs_biosignals / downsample_ratio,
+        "raw_obj_cropped": raw_selection,
+        "fs": fs,
     }
     return processed_data
 
-@st.cache_data
-def process_data(_data, subject_id):
+def process_data(data, subject_id, n_epoch:int):
     # Process U-Sleep scoring data
-    data = _data.copy()
+    # data = _data.copy()
     if "scoring_processed" not in data:
         data["scoring_processed"] = analyze_uncertain_periods(data["scoring"])
     else:
         logging.warning("Scoring data already processed. Skipping reprocessing.")
     # Process biosignals for visualization
     if "processed_biosignals" not in data:
-        data["processed_biosignals"] = process_biosignals(data["raw_obj"], downsample_ratio=10)
+        data["processed_biosignals"] = process_biosignals(data["raw_obj"], n_epoch, downsample_ratio=10)
     else:
         logging.warning("Biosignals data already processed. Skipping reprocessing.")
     # Return processed data
@@ -330,16 +332,11 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "MINMAX"):
 
     # Bottom plot. Raw data display.
     # Get the processed biosignals
-    data_biosignals = data["processed_biosignals"]
-    signals = data_biosignals["signals"]
-    time = data_biosignals["time"]
-    fs = data_biosignals["fs"]
-    # logging.info(f"Sampling frequency: {fs}")
-    ch_labels = data_biosignals["ch_labels"]
-    # Get the time slice for the current epoch
-    time_slice = np.s_[int(n_epoch * 30 * fs):int((n_epoch + 1) * 30 * fs)]
+    raw_obj = data["processed_biosignals"]["raw_obj_cropped"]
+    fs = data["processed_biosignals"]["fs"]
+    signals, time, ch_labels = get_sorted_biosignals(raw_obj)
     # Plot the signals
-    for idx, signal in enumerate(signals[:, time_slice]):
+    for idx, signal in enumerate(signals):
         # Autoscaling
         if auto_scaling == "MINMAX":
             c_minmax = signal.max() - signal.min()
@@ -347,7 +344,7 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "MINMAX"):
         elif auto_scaling == "RMS":
             c_rms = np.sqrt(np.mean(signal**2))
             signal /= c_rms
-        ax_bottom.plot(time[time_slice], signal + idx, linewidth=0.75)
+        ax_bottom.plot(time, signal + idx, linewidth=0.75)
     # Set y-ticks and labels
     ax_bottom.set_yticks(range(signals.shape[0]), ch_labels)
     ax_bottom.set_ylim(signals.shape[0], -1)
