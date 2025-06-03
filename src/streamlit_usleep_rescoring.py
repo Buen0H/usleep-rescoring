@@ -30,8 +30,6 @@ import tempfile
 from scipy import ndimage
 from scipy.signal import decimate
 from typing import Dict
-import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import logging
@@ -75,7 +73,9 @@ def main():
     data = process_data(data, subject_id, n_epoch)
     # Plot the uploaded files
     fig = draw_figure(data, n_epoch=st.session_state["current_epoch"])
-    st.pyplot(fig, clear_figure=True)
+    fig.savefig("usleep_rescoring.svg", bbox_inches='tight')
+    st.image("usleep_rescoring.svg", caption="U-Sleep Rescoring Tool", use_container_width=False)
+    # st.pyplot(fig, clear_figure=True, use_container_width=True)
     # Buttons to navigate through the data
     rewind, back, forward, fast_forward = st.columns(4)
     current_epoch = st.session_state["current_epoch"]
@@ -305,7 +305,7 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "MINMAX"):
     period_scoring (int) - scoring sampling period in seconds.
     '''
     # Create the figure and GridSpec layout
-    fig = plt.figure(figsize=(18, 7))
+    fig = plt.figure(figsize=(20, 6))
     gs = gridspec.GridSpec(2, 1, height_ratios=[1, 5])  # 1 unit for top, 5 for bottom
 
     # Create the top and bottom axes
@@ -347,7 +347,7 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "MINMAX"):
         elif auto_scaling == "RMS":
             c_rms = np.sqrt(np.mean(signal**2))
             signal /= c_rms
-        ax_bottom.plot(time, signal + idx, linewidth=0.75)
+        ax_bottom.plot(time, signal + idx, linewidth=0.5)
     # Set y-ticks and labels
     ax_bottom.set_yticks(range(signals.shape[0]), ch_labels)
     ax_bottom.set_ylim(signals.shape[0], -1)
