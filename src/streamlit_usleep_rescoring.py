@@ -22,7 +22,8 @@ TODO
 '''
 
 import streamlit as st
-import boto3
+from webdav3.client import Client
+import os
 from io import BytesIO
 import numpy as np
 import mne
@@ -35,6 +36,8 @@ import matplotlib.gridspec as gridspec
 import logging
 
 LOG_LEVEL = logging.INFO
+
+CACHE_PATH = "./cache/"
 
 SELECT_AUTOSCALING = "MINMAX"
 SELECT_N_UNCERTAIN_PERIOD = 5
@@ -103,74 +106,84 @@ def init_session_state():
         st.session_state["subject_id"] = None
     if "current_epoch" not in st.session_state:
         st.session_state["current_epoch"] = 0
+    if not os.path.exists(CACHE_PATH):
+        os.makedirs(CACHE_PATH)
     
 @st.cache_resource
-def get_s3_connection():
-    """Initialize AWS session state."""
-    # Load credentials from secrets.toml
-    s3_client = boto3.client(
-        "s3",
-        aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
-        region_name=st.secrets["AWS_DEFAULT_REGION"]
-    )
-    bucket_name = st.secrets["AWS_S3_BUCKET_NAME"]
-    # List directories in the bucket
-    response = s3_client.list_objects_v2(Bucket=bucket_name, Delimiter="/")
-    bucket_directories = [prefix["Prefix"] for prefix in response.get("CommonPrefixes", [])]
-    if not bucket_directories:
-        logging.error("Bucket is empty.")
-        return None, None, None
-    return s3_client, bucket_name, bucket_directories
+def get_connection():
+    # Configuration for RDR WebDAV access
+    options = {
+        'webdav_hostname': st.secrets["RDR_HOSTNAME"],
+        'webdav_login':    st.secrets["RDR_USERNAME"],
+        'webdav_password': st.secrets["RDR_PASSWORD"],
+    }
+    # Initialize the WebDAV client
+    rdr_client = Client(options)
+    if not rdr_client:
+        logging.error("Connection error.")
+        return None, None
+    # Get file list from remote directory
+    remote_path = f"{st.secrets['RDR_REMOTE_PATH']}/"
+    filenames = rdr_client.list(remote_path)
+    return rdr_client, filenames
+
+def get_unique_subject_ids(filenames):
+    """Extract unique subject IDs from filenames."""
+    return sorted(set(["_".join(filename.split("_")[:2]) for filename in filenames]))
 
 @st.cache_data
-def load_data_from_s3(folder_name):
-    """Load data from S3 bucket."""
+def load_data_from_connection(experiment_name: str):
+    """Load data from the Radboud Data Repository."""
     # Get the S3 client and bucket name
-    s3_client, bucket_name, _ = get_s3_connection()
-    # List files in the selected folder
-    response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=folder_name)
-    files = [content["Key"] for content in response.get("Contents", [])]
+    client, filenames = get_connection()
+    # Find valid files for the selected experiment
+    experiment_files = [filename for filename in filenames if filename.startswith(experiment_name) and (filename.endswith(".npy") or filename.endswith(".edf"))]
+    if not experiment_files:
+        logging.error(f"No valid files found for experiment {experiment_name}.")
+        st.sidebar.error("No valid files found for the selected experiment.")
+        return None
+    else:
+        logging.info(f"Found {len(experiment_files)} files for experiment {experiment_name}.")
+        logging.info(f"Files: {experiment_files}")
+        st.sidebar.info(f"Found {len(experiment_files)} files for experiment {experiment_name}.")
+        st.sidebar.info(f"Files: {experiment_files}")
     # Process uploaded files
     data = {}
-    for file_key in files:
+    for filename in experiment_files:
         # Fetch the file from S3
-        obj = s3_client.get_object(Bucket=bucket_name, Key=file_key)
+        local_path = CACHE_PATH + filename
+        remote_path = f"{st.secrets['RDR_REMOTE_PATH']}/{filename}"
+        client.download(remote_path, local_path)
         # Read the file content according to its type
-        if file_key.endswith(".npy"):
-            logging.info(f"Attempting to load scoring file: {file_key}")
-            data["scoring"] = np.load(BytesIO(obj["Body"].read()))
-        elif file_key.endswith(".edf"):
-            logging.info(f"Attempting to load PSG file: {file_key}")
-            # Read the EDF file using MNE
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".edf") as tmp_file:
-                tmp_file.write(obj["Body"].read())
-                tmp_file.flush()  # Ensure the file is written
-                # Read the EDF file using MNE
-                data["raw_obj"] = mne.io.read_raw_edf(tmp_file.name, preload=False, verbose=False)
+        if filename.endswith(".npy"):
+            logging.info(f"Attempting to load scoring file: {filename}")
+            data["scoring"] = np.load(local_path)
+        elif filename.endswith(".edf"):
+            logging.info(f"Attempting to load PSG file: {filename}")
+            data["raw_obj"] = mne.io.read_raw_edf(local_path, preload=False, verbose=False)
         else:
-            logging.warning(f"File {file_key} is not a valid EDF or NPY file.")
+            logging.warning(f"File {filename} is not a valid EDF or NPY file.")
     return data
 
 def sidebar_import_data():
     """Sidebar for importing data."""
     # Initialize AWS client
-    s3_client, _, bucket_directories = get_s3_connection()
-    if not s3_client:
-        logging.error("Failed to connect to AWS S3.")
-        st.sidebar.error("Error connecting to AWS.")
+    client, filenames = get_connection()
+    if not client:
+        logging.error("Failed to connect to Radboud Data Repository.")
+        st.sidebar.error("Error with connection.")
         return None
-    logging.info("Connected to AWS S3 successfully.")
-
+    logging.info("Connected established.")
+    # Filter for subject ids.
+    experiment_ids = get_unique_subject_ids(filenames)
     # Populate sidebar with file upload options
     with st.sidebar:
         st.header("Import Data")
-        folder_choice = st.selectbox("Select folder", bucket_directories, index=None)
-    
-    if folder_choice:
-        logging.info(f"Selected folder: {folder_choice}")
+        experiment_choice = st.selectbox("Select experiment", experiment_ids, index=None)
+    if experiment_choice:
+        logging.info(f"Selected folder: {experiment_choice}")
         # Load data from the selected folder
-        data = load_data_from_s3(folder_choice)
+        data = load_data_from_connection(experiment_choice)
         if not data:
             logging.error("No files found in the selected folder.")
             st.sidebar.error("Error connecting to AWS.")
@@ -185,9 +198,8 @@ def sidebar_import_data():
             st.sidebar.error("Error loading data from AWS.")
             return None
         # Return data
-        subject_id = folder_choice.split("/")[-2]  # Assuming folder structure is like 'bucket/subject_id/'
-        st.session_state["subject_id"] = subject_id
-        logging.info(f"Data loaded successfully for subject {subject_id}.")
+        st.session_state["subject_id"] = experiment_choice
+        logging.info(f"Data loaded successfully for subject {experiment_choice}.")
         return data
     else:
         st.sidebar.warning("Please select a folder.")

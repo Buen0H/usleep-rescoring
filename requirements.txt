@@ -1,4 +1,4 @@
 mne
 streamlit
 pyEDFlib
-boto3
+webdavclient3
