@@ -7,16 +7,17 @@ the correct sleep stage.
 TODO
 - Validate analyze_uncertain_periods logic with Sarah.
 - Reorder biosignal channels [EOG x2, front EEG, ... , back EEG, EMG x2]
-- Put file upload information in a container.
-- Elaborate on file checks.
-- Add a way to get context
 - Mark rescoring periods on the scoring plot
 - Add a stage 2 to find start of wake cycles.
 - Autoscaling; change scale of individual channels
 - Disable channels
 - Score artifact
-- EOG twice
-- Wider
+- Handle subject_id switching
+- Handle disabling of forward button when out of bounds
+QUESTIONS
+- What exactly are we recoring? The uncertain periods or the 30 second epochs?
+- Reminder on what the stage 2 of the rescoring of wake cycles will look like.
+
 
 
 '''
@@ -67,27 +68,43 @@ def main():
     # Create mechanism to import files.
     data = sidebar_import_data()
     if not data:
-        logging.error("No data loaded from S3.")
+        logging.error("No data loaded from remote database.")
         st.warning("Please select files for upload to continue with rescoring.")
         return
     # Process uploaded files.
     subject_id = st.session_state["subject_id"]
-    n_epoch = st.session_state["current_epoch"]
-    data = process_data(data, subject_id, n_epoch)
+    data = process_scoring_data(data, subject_id)
+    if st.session_state["current_epoch"] == -1:
+        # If no epoch is selected, set the current epoch to the first uncertain period
+        if data["scoring_processed"]["n_uncertain_periods"] > 0:
+            st.session_state["current_epoch"] = 0
+            logging.warning("No uncertain periods found in the data.")
+            st.warning("No uncertain periods found in the data. Please select a different file.")
+        else:
+            st.session_state["current_epoch"] = int(data["scoring_processed"]["uncertain_periods"][0]["start_hour"] * 3600 / 30)
+    data = process_series_data(data, subject_id, n_epoch=st.session_state["current_epoch"])
     # Plot the uploaded files
     fig = draw_figure(data, n_epoch=st.session_state["current_epoch"])
     fig.savefig("usleep_rescoring.svg", bbox_inches='tight')
     st.image("usleep_rescoring.svg", caption="U-Sleep Rescoring Tool", use_container_width=False)
-    # st.pyplot(fig, clear_figure=True, use_container_width=True)
-    # Buttons to navigate through the data
+    # Mechanism to navigate through recording.
     rewind, back, forward, fast_forward = st.columns(4)
     current_epoch = st.session_state["current_epoch"]
-    uncertain_epochs = data["scoring_processed"]["n_uncertain_periods"]
-
-    rewind.button("Rewind", key="rewind", use_container_width=True, on_click=callback_counter, args=(-2), disabled=True)
-    back.button("Back", key="back", use_container_width=True, on_click=callback_counter, args=(-1,), disabled=(current_epoch == 0))
-    forward.button("Forward", key="forward", use_container_width=True, on_click=callback_counter, args=(+1,))
-    fast_forward.button("Fast forward", key="fast_forward", use_container_width=True, on_click=callback_counter, args=(+2), disabled=True)
+    rewind.button("Rewind", key="rewind", use_container_width=True, on_click=callback_counter, 
+                args=(find_closest_uncertain_period(data, current_epoch, direction=False), ))
+    back.button("Back", key="back", use_container_width=True, on_click=callback_counter, 
+                args=(current_epoch - 1, ), disabled=(current_epoch == 0))
+    forward.button("Forward", key="forward", use_container_width=True, on_click=callback_counter, 
+                args=(current_epoch + 1, ))#, disabled=(current_epoch >= data[""])
+    fast_forward.button("Fast forward", key="fast_forward", use_container_width=True, on_click=callback_counter, 
+                args=(find_closest_uncertain_period(data, current_epoch, direction=True), ))
+    # Mechanism to grade the uncertaion periods.
+    wake, rem, n1, n2, n3 = st.columns(5)
+    wake.button("Wake", key="wake", use_container_width=True)
+    rem.button("REM", key="rem", use_container_width=True)
+    n1.button("N1", key="n1", use_container_width=True)
+    n2.button("N2", key="n2", use_container_width=True)
+    n3.button("N3", key="n3", use_container_width=True)
 
 def init_logging():
     """Initialize logging."""
@@ -105,10 +122,10 @@ def init_session_state():
     if "subject_id" not in st.session_state:
         st.session_state["subject_id"] = None
     if "current_epoch" not in st.session_state:
-        st.session_state["current_epoch"] = 0
+        st.session_state["current_epoch"] = -1 # Initialize to -1 to indicate no epoch selected; will update after data load.
     if not os.path.exists(CACHE_PATH):
         os.makedirs(CACHE_PATH)
-    
+
 @st.cache_resource
 def get_connection():
     # Configuration for RDR WebDAV access
@@ -250,6 +267,27 @@ def analyze_uncertain_periods(confidence_data: np.ndarray) -> Dict:
         "time_hrs": time_hrs,  # 30 seconds per epoch
     }
 
+def find_closest_uncertain_period(_data: Dict, current_epoch: int, direction: bool) -> int:
+    """Find the closest uncertain period to the current epoch."""
+    # Get the current time in hours
+    current_hour = current_epoch * 30 / 3600  # 30 seconds per epoch
+    # Get the uncertain periods from scoring data
+    uncertain_periods = _data["scoring_processed"]["uncertain_periods"]
+    uncertain_periods_start_hrs = [period["start_hour"] for period in uncertain_periods]
+    if direction:
+        # If direction is True, find the next uncertain period
+        uncertain_periods_start_hrs = [hour for hour in uncertain_periods_start_hrs if hour > current_hour]
+        closest_period = uncertain_periods_start_hrs[0] if uncertain_periods_start_hrs else None
+    else:
+        # If direction is False, find the previous uncertain period
+        uncertain_periods_start_hrs = [hour for hour in uncertain_periods_start_hrs if hour < current_hour]
+        closest_period = uncertain_periods_start_hrs[-1] if uncertain_periods_start_hrs else None
+    if closest_period is None:
+        logging.warning("No uncertain period found in the specified direction.")
+        return current_epoch  # Return the current epoch if no uncertain period is found\
+    closest_epoch = int(closest_period * 3600 / 30)  # Convert hours to epochs
+    return closest_epoch
+
 def get_sorted_biosignals(obj: mne.io.Raw) -> tuple:
     ''' Reorder channels to EOG x2, front EEG, ... , back EEG, EMG x2 '''
     # Load channel names
@@ -296,20 +334,20 @@ def process_biosignals(raw_obj: mne.io.Raw, n_epoch: int, downsample_ratio: int 
     }
     return processed_data
 
-def process_data(data, subject_id, n_epoch:int):
+@st.cache_data
+def process_scoring_data(_data: Dict, subject_id: int) -> Dict:
+    """Process scoring data to extract uncertain periods."""
+    # Analyze uncertain periods in the scoring data
+    _data["scoring_processed"] = analyze_uncertain_periods(_data["scoring"])
+    return _data
+
+@st.cache_data
+def process_series_data(_data: Dict, subject_id: int, n_epoch:int):
     # Process U-Sleep scoring data
-    # data = _data.copy()
-    if "scoring_processed" not in data:
-        data["scoring_processed"] = analyze_uncertain_periods(data["scoring"])
-    else:
-        logging.warning("Scoring data already processed. Skipping reprocessing.")
     # Process biosignals for visualization
-    if "processed_biosignals" not in data:
-        data["processed_biosignals"] = process_biosignals(data["raw_obj"], n_epoch, downsample_ratio=10)
-    else:
-        logging.warning("Biosignals data already processed. Skipping reprocessing.")
+    _data["processed_biosignals"] = process_biosignals(_data["raw_obj"], n_epoch, downsample_ratio=10)
     # Return processed data
-    return data
+    return _data
 
 def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "MINMAX"):
     '''
@@ -366,13 +404,8 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "MINMAX"):
     ax_bottom.set_xlabel("Time (s)")
     return fig
     
-def callback_counter(action_type: int):
+def callback_counter(current_epoch: int):
     """Callback function for button clicks."""
-    # Get the current epoch from session state
-    if action_type == -1: # Rewind
-        current_epoch = st.session_state["current_epoch"] - 1
-    elif action_type == +1: # Forward
-        current_epoch = st.session_state["current_epoch"] + 1
     # Update the current epoch in session state
     st.session_state["current_epoch"] = current_epoch
     # Update the figure in the Streamlit app
