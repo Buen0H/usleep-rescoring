@@ -76,7 +76,7 @@ def main():
     data = process_scoring_data(data, subject_id)
     if st.session_state["current_epoch"] == -1:
         # If no epoch is selected, set the current epoch to the first uncertain period
-        if data["scoring_processed"]["n_uncertain_periods"] > 0:
+        if data["scoring_processed"]["n_uncertain_periods"] == 0:
             st.session_state["current_epoch"] = 0
             logging.warning("No uncertain periods found in the data.")
             st.warning("No uncertain periods found in the data. Please select a different file.")
@@ -85,8 +85,8 @@ def main():
     data = process_series_data(data, subject_id, n_epoch=st.session_state["current_epoch"])
     # Plot the uploaded files
     fig = draw_figure(data, n_epoch=st.session_state["current_epoch"])
-    fig.savefig("usleep_rescoring.svg", bbox_inches='tight')
-    st.image("usleep_rescoring.svg", caption="U-Sleep Rescoring Tool", use_container_width=False)
+    fig.savefig("cache/usleep_rescoring.svg", bbox_inches='tight')
+    st.image("cache/usleep_rescoring.svg", caption="U-Sleep Rescoring Tool", use_container_width=False)
     # Mechanism to navigate through recording.
     rewind, back, forward, fast_forward = st.columns(4)
     current_epoch = st.session_state["current_epoch"]
