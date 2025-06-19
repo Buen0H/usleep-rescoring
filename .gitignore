@@ -1,3 +1,5 @@
 .venv
 .streamlit/secrets.toml
 cache/*
+data/*
+notebooks/*
