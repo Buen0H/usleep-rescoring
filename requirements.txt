@@ -1,4 +1,5 @@
 mne
-streamlit
+streamlit>=1.45.0
+streamlit-shortcuts
 pyEDFlib
 webdavclient3

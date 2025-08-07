@@ -9,7 +9,7 @@ TODO
 - Reorder biosignal channels [EOG x2, front EEG, ... , back EEG, EMG x2]
 - Mark rescoring periods on the scoring plot
 - Add a stage 2 to find start of wake cycles.
-- Autoscaling; change scale of individual channels
+- Autoscaling; change scale of individual channels +30, +50 uV +130, +
 - Disable channels
 - Score artifact
 - Handle subject_id switching
@@ -23,6 +23,7 @@ QUESTIONS
 '''
 
 import streamlit as st
+from streamlit_shortcuts import shortcut_button, add_shortcuts
 from webdav3.client import Client
 import os
 from io import BytesIO
@@ -39,10 +40,6 @@ import logging
 LOG_LEVEL = logging.INFO
 
 CACHE_PATH = "./cache/"
-
-SELECT_AUTOSCALING = "MINMAX"
-SELECT_N_UNCERTAIN_PERIOD = 5
-SELECT_N_EPOCH = 3
 
 SLEEP_STAGE_LABELS = ["Wake", "REM", "N1", "N2", "N3"] 
 FS_PSG = 500 # get from edf file instead.  
@@ -65,6 +62,7 @@ def main():
     st.title("U-Sleep Rescoring Tool")
     # Initialize session state
     init_session_state()
+    fig_config = st.session_state["fig_config"]
     # Create mechanism to import files.
     data = sidebar_import_data()
     if not data:
@@ -74,37 +72,135 @@ def main():
     # Process uploaded files.
     subject_id = st.session_state["subject_id"]
     data = process_scoring_data(data, subject_id)
-    if st.session_state["current_epoch"] == -1:
+    st.session_state["scoring_manual"] = data["scoring_processed"]["scoring_naive"] # Initialize manual scoring with naive scoring.
+    # Handle the case where no epoch is selected.
+    if fig_config["current_epoch"] == -1:
         # If no epoch is selected, set the current epoch to the first uncertain period
         if data["scoring_processed"]["n_uncertain_periods"] == 0:
-            st.session_state["current_epoch"] = 0
+            fig_config["current_epoch"] = 0
             logging.warning("No uncertain periods found in the data.")
             st.warning("No uncertain periods found in the data. Please select a different file.")
         else:
-            st.session_state["current_epoch"] = int(data["scoring_processed"]["uncertain_periods"][0]["start_hour"] * 3600 / 30)
-    data = process_series_data(data, subject_id, n_epoch=st.session_state["current_epoch"])
+            first_uncertain_hour = data["scoring_processed"]["uncertain_periods"][0]["start_hour"]
+            first_uncertain_epoch = int(first_uncertain_hour * 3600 / 30)  # Convert hours to epochs.
+            fig_config["current_epoch"] = first_uncertain_epoch
+    n_epoch = fig_config["current_epoch"]
+    data = process_series_data(data, subject_id, n_epoch)
     # Plot the uploaded files
-    fig = draw_figure(data, n_epoch=st.session_state["current_epoch"])
+    # Draw the figure with the current epoch
+    fig = draw_figure(data, n_epoch)
     fig.savefig("cache/usleep_rescoring.svg", bbox_inches='tight')
-    st.image("cache/usleep_rescoring.svg", caption="U-Sleep Rescoring Tool", use_container_width=False)
-    # Mechanism to navigate through recording.
-    rewind, back, forward, fast_forward = st.columns(4)
-    current_epoch = st.session_state["current_epoch"]
-    rewind.button("Rewind", key="rewind", use_container_width=True, on_click=callback_counter, 
-                args=(find_closest_uncertain_period(data, current_epoch, direction=False), ))
-    back.button("Back", key="back", use_container_width=True, on_click=callback_counter, 
-                args=(current_epoch - 1, ), disabled=(current_epoch == 0))
-    forward.button("Forward", key="forward", use_container_width=True, on_click=callback_counter, 
-                args=(current_epoch + 1, ))#, disabled=(current_epoch >= data[""])
-    fast_forward.button("Fast forward", key="fast_forward", use_container_width=True, on_click=callback_counter, 
-                args=(find_closest_uncertain_period(data, current_epoch, direction=True), ))
+    st.image("cache/usleep_rescoring.svg", use_container_width=False)
+
+    # with control_panel:
+    #     raw_obj = data["processed_biosignals"]["raw_obj_cropped"]
+    #     _, _, ch_labels = get_sorted_biosignals(raw_obj)
+    #     for ch_label in ch_labels[1:]:  # Skip the first channel (EOG)
+    #         label_col, visible_col, range_col = st.columns(3)
+    #         # Label column
+    #         label_col.markdown(f"{ch_label}")
+    #         # Visibility control
+    #         visible_col.checkbox(
+    #             label="Visible",
+    #             value=True,
+    #             key=f"visible_{ch_label}",
+    #             label_visibility="collapsed",
+    #         )
+    #         # Range control
+    #         range_col.segmented_control(
+    #             options=[":heavy_minus_sign:", ":heavy_plus_sign:"],
+    #             label=ch_label,
+    #             selection_mode="single",
+    #             key=f"control_{ch_label}",
+    #             default=None,
+    #             label_visibility="collapsed",           )
+
     # Mechanism to grade the uncertaion periods.
-    wake, rem, n1, n2, n3 = st.columns(5)
-    wake.button("Wake", key="wake", use_container_width=True)
-    rem.button("REM", key="rem", use_container_width=True)
-    n1.button("N1", key="n1", use_container_width=True)
-    n2.button("N2", key="n2", use_container_width=True)
-    n3.button("N3", key="n3", use_container_width=True)
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        st.button("Wake", key="wake", use_container_width=True,)
+    with col2:
+        st.button("REM", key="rem", use_container_width=True)
+    with col3:
+        st.button("N1", key="n1", use_container_width=True)
+    with col4:
+        st.button("N2", key="n2", use_container_width=True)
+    with col5:
+        st.button("N3", key="n3", use_container_width=True)
+    
+    # Mechanism to navigate through recording.
+    current_epoch = fig_config["current_epoch"]
+    previous_epoch = current_epoch - 1
+    next_epoch = current_epoch + 1
+    previous_uncertain_epoch = find_closest_uncertain_period(data, current_epoch, direction=False)
+    next_uncertain_epoch = find_closest_uncertain_period(data, current_epoch, direction=True)
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        if st.button("Rewind", key="rewind", use_container_width=True, 
+                     on_click=callback_counter, args=(previous_uncertain_epoch, )):
+            logging.info(f"Rewind button selected. Current epoch: {previous_uncertain_epoch}")
+    with col2:
+        if st.button("Back", key="back", use_container_width=True, 
+                     on_click=callback_counter, args=(previous_epoch, ), 
+                     disabled=(current_epoch == 0)):
+            logging.info(f"Back button selected. Current epoch: {previous_epoch}")
+    with col3:
+        if st.button("Forward", key="forward", use_container_width=True, 
+                     on_click=callback_counter, args=(next_epoch, )):
+            logging.info(f"Forward button selected. Current epoch: {next_epoch}")
+    with col4:
+        if st.button("Fast forward", key="fast_forward", use_container_width=True, 
+                     on_click=callback_counter, args=(next_uncertain_epoch, )):
+            logging.info(f"Fast forward button selected. Current epoch: {next_uncertain_epoch}")
+    # Add shortcuts for the buttons
+    add_shortcuts(
+        wake="0",
+        rem="4",
+        n1="1",
+        n2="2",
+        n3="3",
+        rewind="arrowdown",
+        back="arrowleft",
+        forward="arrowright",
+        fast_forward="arrowup",
+    )
+
+    # wake.button("Wake", key="wake", use_container_width=True)
+    # rem.button("REM", key="rem", use_container_width=True)
+    # n1.button("N1", key="n1", use_container_width=True)
+    # n2.button("N2", key="n2", use_container_width=True)
+    # n3.button("N3", key="n3", use_container_width=True)
+
+    # Mechanism to navigate through recording.
+    # rewind, back, forward, fast_forward = st.columns(4)
+    # current_epoch = fig_config["current_epoch"]
+    # with back:
+    #     if shortcut_button(label="Back", shortcut="arrowleft", hint=False, key="back",
+    #                        use_container_width=True, on_click=callback_counter, 
+    #                        args=(current_epoch - 1, ), disabled=(current_epoch == 0)):
+    #         logging.info(f"Back button clicked. Current epoch: {current_epoch - 1}")
+    # with forward:
+    #     if shortcut_button(label="Forward", shortcut="arrowright", hint=False, key="forward",
+    #                        use_container_width=True, on_click=callback_counter, 
+    #                        args=(current_epoch + 1, )):#, disabled=(current_epoch >= data["scoring_processed"]["n_uncertain_periods"])):
+    #         logging.info(f"Forward button clicked. Current epoch: {current_epoch + 1}")
+    # rewind.button("Rewind", key="rewind", use_container_width=True, on_click=callback_counter, 
+    #             args=(find_closest_uncertain_period(data, current_epoch, direction=False), ))
+    # back.button("Back", key="back", use_container_width=True, on_click=callback_counter, 
+    #             args=(current_epoch - 1, ), disabled=(current_epoch == 0))
+    # forward.button("Forward", key="forward", use_container_width=True, on_click=callback_counter, 
+    #             args=(current_epoch + 1, ))#, disabled=(current_epoch >= data[""])
+    # fast_forward.button("Fast forward", key="fast_forward", use_container_width=True, on_click=callback_counter, 
+    #             args=(find_closest_uncertain_period(data, current_epoch, direction=True), ))
+
+    # Add shortcuts for navigation
+    # add_shortcuts(
+    #     back="arrowleft",
+    #     forward="arrowright",
+    #     rewind="arrowdown",
+    #     fast_forward="arrowup",
+    # )
+
 
 def init_logging():
     """Initialize logging."""
@@ -121,10 +217,17 @@ def init_session_state():
     """Initialize session state."""
     if "subject_id" not in st.session_state:
         st.session_state["subject_id"] = None
-    if "current_epoch" not in st.session_state:
-        st.session_state["current_epoch"] = -1 # Initialize to -1 to indicate no epoch selected; will update after data load.
     if not os.path.exists(CACHE_PATH):
         os.makedirs(CACHE_PATH)
+    if "fig_config" not in st.session_state:
+        st.session_state["fig_config"] = {
+            "current_epoch": -1,        # Initialize to -1 to indicate no epoch selected; will update after data load.
+            "raw_obj_selection": None,  # Will populate with raw object selection after data load.
+            "fs": None,                 # Will populate with sampling frequency after data load.
+            "signal_properties": {},    # Will populate with channel properties after data load.
+        }
+    if "scoring_manual" not in st.session_state:
+        st.session_state["scoring_manual"] = np.array([])  # Initialize empty array for manual scoring.
 
 @st.cache_resource
 def get_connection():
@@ -203,16 +306,16 @@ def sidebar_import_data():
         data = load_data_from_connection(experiment_choice)
         if not data:
             logging.error("No files found in the selected folder.")
-            st.sidebar.error("Error connecting to AWS.")
+            st.sidebar.error("Error connecting to RDR.")
             return None
         # Check if files are valid
         if "raw_obj" not in data:
             logging.error("No raw data uploaded.")
-            st.sidebar.error("Error loading data from AWS.")
+            st.sidebar.error("Error loading data from RDR.")
             return None
         elif "scoring" not in data:
             logging.error("No raw data uploaded.")
-            st.sidebar.error("Error loading data from AWS.")
+            st.sidebar.error("Error loading data from RDR.")
             return None
         # Return data
         st.session_state["subject_id"] = experiment_choice
@@ -221,6 +324,9 @@ def sidebar_import_data():
     else:
         st.sidebar.warning("Please select a folder.")
         return None
+
+# def sidebar_control_panel():
+
 
 def analyze_uncertain_periods(confidence_data: np.ndarray) -> Dict:
     """Analyze periods of low confidence."""
@@ -283,7 +389,11 @@ def find_closest_uncertain_period(_data: Dict, current_epoch: int, direction: bo
         uncertain_periods_start_hrs = [hour for hour in uncertain_periods_start_hrs if hour < current_hour]
         closest_period = uncertain_periods_start_hrs[-1] if uncertain_periods_start_hrs else None
     if closest_period is None:
-        logging.warning("No uncertain period found in the specified direction.")
+        # If no uncertain period is found in the specified direction, log a warning and return the current epoch
+        if direction:
+            logging.warning("No uncertain period found in the specified direction (forward).")
+        else:   
+            logging.warning("No uncertain period found in the specified direction (rewind).")
         return current_epoch  # Return the current epoch if no uncertain period is found\
     closest_epoch = int(closest_period * 3600 / 30)  # Convert hours to epochs
     return closest_epoch
@@ -323,10 +433,6 @@ def process_biosignals(raw_obj: mne.io.Raw, n_epoch: int, downsample_ratio: int 
     time_start = n_epoch * 30
     time_stop = (n_epoch + 1) * 30
     raw_selection = raw_obj.copy().crop(tmin=time_start, tmax=time_stop)
-    # # Downsample the signals
-    # signals_downsampled = decimate(signals, downsample_ratio, axis=1)
-    # signals_downsampled = decimate(signals_downsampled, downsample_ratio, axis=1)
-    # time_downsampled = np.arange(signals_downsampled.shape[1]) / (fs_biosignals / downsample_ratio)
     # Create a dictionary to store the processed data
     processed_data = {
         "raw_obj_cropped": raw_selection,
@@ -349,7 +455,7 @@ def process_series_data(_data: Dict, subject_id: int, n_epoch:int):
     # Return processed data
     return _data
 
-def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "MINMAX"):
+def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "STANDARD", scale_val = 30):
     '''
     INPUTS
     period_scoring (int) - scoring sampling period in seconds.
@@ -390,6 +496,7 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "MINMAX"):
     signals, time, ch_labels = get_sorted_biosignals(raw_obj)
     # Plot the signals
     for idx, signal in enumerate(signals):
+        logging.info(f"Range of signal {idx}: {np.min(signal)} to {np.max(signal)} {np.std(signal)}")
         # Autoscaling
         if auto_scaling == "MINMAX":
             c_minmax = signal.max() - signal.min()
@@ -397,6 +504,10 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "MINMAX"):
         elif auto_scaling == "RMS":
             c_rms = np.sqrt(np.mean(signal**2))
             signal /= c_rms
+        elif auto_scaling == "STANDARD":
+            c_range = 2 * scale_val 
+            signal *= 1e6 # Convert to microvolts
+            signal /= c_range
         ax_bottom.plot(time, signal + idx, linewidth=0.5)
     # Set y-ticks and labels
     ax_bottom.set_yticks(range(signals.shape[0]), ch_labels)
@@ -407,7 +518,7 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "MINMAX"):
 def callback_counter(current_epoch: int):
     """Callback function for button clicks."""
     # Update the current epoch in session state
-    st.session_state["current_epoch"] = current_epoch
+    st.session_state["fig_config"]["current_epoch"] = current_epoch
     # Update the figure in the Streamlit app
     # st.session_state["fig"] = fig
     # st.pyplot(fig)
