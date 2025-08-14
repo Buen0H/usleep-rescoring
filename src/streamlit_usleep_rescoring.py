@@ -72,8 +72,9 @@ def main():
     # Process uploaded files.
     subject_id = st.session_state["subject_id"]
     data = process_scoring_data(data, subject_id)
-    st.session_state["scoring_manual"] = data["scoring_processed"]["scoring_naive"].copy() # Initialize manual scoring with naive scoring.
-    st.session_state["scoring_manual_mask"] = np.zeros_like(st.session_state["scoring_manual"], dtype=bool)  # Initialize mask for manual scoring.
+    if st.session_state["scoring_manual"].size == 0:
+        st.session_state["scoring_manual"] = data["scoring_processed"]["scoring_naive"].copy() # Initialize manual scoring with naive scoring.
+        st.session_state["scoring_manual_mask"] = np.zeros_like(st.session_state["scoring_manual"], dtype=bool)  # Initialize mask for manual scoring.
     # Handle the case where no epoch is selected.
     if fig_config["current_epoch"] == -1:
         # If no epoch is selected, set the current epoch to the first uncertain period
@@ -129,30 +130,35 @@ def main():
         if st.button("Wake", key="wake", use_container_width=True,):
             st.session_state["scoring_manual"][current_epoch] = 0  # Wake
             st.session_state["scoring_manual_mask"][current_epoch] = True  # Mark as manually scored
+            st.session_state["fig_config"]["current_epoch"] = next_epoch    # Update current epoch to next one
             logging.info(f"Wake button selected. Current epoch: {current_epoch}")
             st.rerun()  # Force rerun to update UI
     with col2:
         if st.button("REM", key="rem", use_container_width=True):
             st.session_state["scoring_manual"][current_epoch] = 1  # REM
             st.session_state["scoring_manual_mask"][current_epoch] = True  # Mark as manually scored
+            st.session_state["fig_config"]["current_epoch"] = next_epoch    # Update current epoch to next one
             logging.info(f"REM button selected. Current epoch: {current_epoch}")
             st.rerun()  # Force rerun to update UI
     with col3:
         if st.button("N1", key="n1", use_container_width=True):
             st.session_state["scoring_manual"][current_epoch] = 2  # N1
             st.session_state["scoring_manual_mask"][current_epoch] = True  # Mark as manually scored
+            st.session_state["fig_config"]["current_epoch"] = next_epoch    # Update current epoch to next one
             logging.info(f"N1 button selected. Current epoch: {current_epoch}")
             st.rerun()  # Force rerun to update UI
     with col4:
         if st.button("N2", key="n2", use_container_width=True):
             st.session_state["scoring_manual"][current_epoch] = 3  # N2
             st.session_state["scoring_manual_mask"][current_epoch] = True # Mark as manually scored
+            st.session_state["fig_config"]["current_epoch"] = next_epoch    # Update current epoch to next one
             logging.info(f"N2 button selected. Current epoch: {current_epoch}")
             st.rerun()  # Force rerun to update UI
     with col5:
         if st.button("N3", key="n3", use_container_width=True):
             st.session_state["scoring_manual"][current_epoch] = 4  # N3
             st.session_state["scoring_manual_mask"][current_epoch] = True  # Mark as manually scored
+            st.session_state["fig_config"]["current_epoch"] = next_epoch    # Update current epoch to next one
             logging.info(f"N3 button selected. Current epoch: {current_epoch}")
             st.rerun()  # Force rerun to update UI
     
@@ -192,6 +198,21 @@ def main():
         fast_forward="arrowup",
     )
 
+    # Handle manual scoring file management.
+    # Save the manual scoring data to a file.
+    np.save(CACHE_PATH + f"{subject_id}_scoring_manual.npy", st.session_state["scoring_manual"])
+    with open(CACHE_PATH + f"{subject_id}_scoring_manual.npy", "rb") as f:
+        st.download_button(
+            label="Download manually graded data",
+            data=f,
+            file_name=f"{subject_id}_scoring_manual.npy",
+            mime="application/octet-stream",
+            use_container_width=True,
+        )
+    # # Button to upload files to the repository.
+    # if st.button("Upload file to repository", use_container_width=True):
+    #     logging.info("Upload file to repository button clicked.")
+    #      upload_file_to_repository(CACHE_PATH + f"{subject_id}_scoring_manual.npy")
 
 def init_logging():
     """Initialize logging."""
@@ -318,35 +339,26 @@ def sidebar_import_data():
         st.sidebar.warning("Please select a folder.")
         return None
 
-def upload_file_to_repository():
+def upload_file_to_repository(file_path: str = None):
     """Sidebar widget to upload a file to the external data repository."""
     client, _ = get_connection()
     if not client:
         st.sidebar.error("No connection to repository.")
         return
 
-    st.sidebar.header("Upload Data")
-    uploaded_file = st.sidebar.file_uploader("Choose a file to upload", type=["edf", "npy"])
-    if uploaded_file is not None:
-        # Save to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-            tmp_file.write(uploaded_file.read())
-            tmp_file_path = tmp_file.name
+    # Define remote path
+    remote_path = f"{st.secrets['RDR_REMOTE_PATH']}/{st.session_state['subject_id']}_scoring_manual.npy"
 
-        # Define remote path
-        remote_path = f"{st.secrets['RDR_REMOTE_PATH']}/{uploaded_file.name}"
+    # Upload to WebDAV
+    try:
+        client.upload_sync(remote_path=remote_path, local_path=file_path)
+        st.sidebar.success(f"Uploaded {file_path} to repository.")
+        logging.info(f"Uploaded {file_path} to repository.")
+        st.success(f"File {file_path} uploaded successfully to the repository.")
+    except Exception as e:
+        st.error(f"Upload failed: {e}")
+        logging.error(f"Upload failed: {e}")
 
-        # Upload to WebDAV
-        try:
-            client.upload_sync(remote_path=remote_path, local_path=tmp_file_path)
-            st.sidebar.success(f"Uploaded {uploaded_file.name} to repository.")
-            logging.info(f"Uploaded {uploaded_file.name} to repository.")
-        except Exception as e:
-            st.sidebar.error(f"Upload failed: {e}")
-            logging.error(f"Upload failed: {e}")
-
-        # Clean up temp file
-        os.remove(tmp_file_path)
 
 # def sidebar_control_panel():
 
@@ -478,7 +490,22 @@ def process_series_data(_data: Dict, subject_id: int, n_epoch:int):
     # Return processed data
     return _data
 
-def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "STANDARD", scale_val = 30):
+def plot_masked_regions(ax, mask, time, color="green", alpha=0.3):
+    # Find transitions
+    transitions = np.diff(mask.astype(int))
+    starts = np.where(transitions == 1)[0] + 1
+    ends = np.where(transitions == -1)[0] + 1
+
+    # Handle edge cases
+    if mask[0]:
+        starts = np.insert(starts, 0, 0)
+    if mask[-1]:
+        ends = np.append(ends, len(mask))
+
+    for start, end in zip(starts, ends):
+        ax.fill_betweenx([0, 5], time[start], time[end-1] + 30/3600, color=color, alpha=alpha)
+
+def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "STANDARD"):
     '''
     INPUTS
     period_scoring (int) - scoring sampling period in seconds.
@@ -504,12 +531,8 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "STANDARD", scale_va
         ax_top.fill_betweenx(y=[0, 5], x1=start_hour, x2=end_hour, color="red", alpha=0.3)
     # Highlight manually graded periods.
     manual_scoring_mask = st.session_state["scoring_manual_mask"]
-    logging.info(f"Manual scoring mask: {manual_scoring_mask}")
     if np.any(manual_scoring_mask):
-        ax_top.fill_betweenx(y=[0, 5], 
-                            x1=scoring_data["time_hrs"][manual_scoring_mask], 
-                            x2=scoring_data["time_hrs"][manual_scoring_mask] + 30 / 3600, 
-                            color="green", alpha=0.3, label="Manually graded periods")
+        plot_masked_regions(ax_top, manual_scoring_mask, time, color="green", alpha=0.3)
     # Draw line for the current epoch on the top plot.
     current_epoch = data["scoring_processed"]["time_hrs"][n_epoch]
     ax_top.axvline(x=current_epoch, color="blue", linestyle="--", linewidth=1)
@@ -526,8 +549,7 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "STANDARD", scale_va
     fs = data["processed_biosignals"]["fs"]
     signals, time, ch_labels = get_sorted_biosignals(raw_obj)
     # Plot the signals
-    for idx, signal in enumerate(signals):
-        logging.info(f"Range of signal {idx}: {np.min(signal)} to {np.max(signal)} {np.std(signal)}")
+    for idx, (signal, ch_label) in enumerate(zip(signals, ch_labels)):
         # Autoscaling
         if auto_scaling == "MINMAX":
             c_minmax = signal.max() - signal.min()
@@ -536,6 +558,12 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "STANDARD", scale_va
             c_rms = np.sqrt(np.mean(signal**2))
             signal /= c_rms
         elif auto_scaling == "STANDARD":
+            if ch_label.startswith("EOG"):
+                scale_val = 150
+            elif ch_label.startswith("EMG"):
+                scale_val = 50
+            else:
+                scale_val = 30
             c_range = 2 * scale_val 
             signal *= 1e6 # Convert to microvolts
             signal /= c_range
