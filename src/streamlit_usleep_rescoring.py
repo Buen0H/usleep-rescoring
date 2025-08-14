@@ -72,7 +72,8 @@ def main():
     # Process uploaded files.
     subject_id = st.session_state["subject_id"]
     data = process_scoring_data(data, subject_id)
-    st.session_state["scoring_manual"] = data["scoring_processed"]["scoring_naive"] # Initialize manual scoring with naive scoring.
+    st.session_state["scoring_manual"] = data["scoring_processed"]["scoring_naive"].copy() # Initialize manual scoring with naive scoring.
+    st.session_state["scoring_manual_mask"] = np.zeros_like(st.session_state["scoring_manual"], dtype=bool)  # Initialize mask for manual scoring.
     # Handle the case where no epoch is selected.
     if fig_config["current_epoch"] == -1:
         # If no epoch is selected, set the current epoch to the first uncertain period
@@ -115,43 +116,69 @@ def main():
     #             default=None,
     #             label_visibility="collapsed",           )
 
-    # Mechanism to grade the uncertaion periods.
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.button("Wake", key="wake", use_container_width=True,)
-    with col2:
-        st.button("REM", key="rem", use_container_width=True)
-    with col3:
-        st.button("N1", key="n1", use_container_width=True)
-    with col4:
-        st.button("N2", key="n2", use_container_width=True)
-    with col5:
-        st.button("N3", key="n3", use_container_width=True)
-    
-    # Mechanism to navigate through recording.
+    # Variables with the current epoch and previous/next epochs.
     current_epoch = fig_config["current_epoch"]
     previous_epoch = current_epoch - 1
     next_epoch = current_epoch + 1
     previous_uncertain_epoch = find_closest_uncertain_period(data, current_epoch, direction=False)
     next_uncertain_epoch = find_closest_uncertain_period(data, current_epoch, direction=True)
+
+    # Mechanism to grade the uncertaion periods.
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        if st.button("Wake", key="wake", use_container_width=True,):
+            st.session_state["scoring_manual"][current_epoch] = 0  # Wake
+            st.session_state["scoring_manual_mask"][current_epoch] = True  # Mark as manually scored
+            logging.info(f"Wake button selected. Current epoch: {current_epoch}")
+            st.rerun()  # Force rerun to update UI
+    with col2:
+        if st.button("REM", key="rem", use_container_width=True):
+            st.session_state["scoring_manual"][current_epoch] = 1  # REM
+            st.session_state["scoring_manual_mask"][current_epoch] = True  # Mark as manually scored
+            logging.info(f"REM button selected. Current epoch: {current_epoch}")
+            st.rerun()  # Force rerun to update UI
+    with col3:
+        if st.button("N1", key="n1", use_container_width=True):
+            st.session_state["scoring_manual"][current_epoch] = 2  # N1
+            st.session_state["scoring_manual_mask"][current_epoch] = True  # Mark as manually scored
+            logging.info(f"N1 button selected. Current epoch: {current_epoch}")
+            st.rerun()  # Force rerun to update UI
+    with col4:
+        if st.button("N2", key="n2", use_container_width=True):
+            st.session_state["scoring_manual"][current_epoch] = 3  # N2
+            st.session_state["scoring_manual_mask"][current_epoch] = True # Mark as manually scored
+            logging.info(f"N2 button selected. Current epoch: {current_epoch}")
+            st.rerun()  # Force rerun to update UI
+    with col5:
+        if st.button("N3", key="n3", use_container_width=True):
+            st.session_state["scoring_manual"][current_epoch] = 4  # N3
+            st.session_state["scoring_manual_mask"][current_epoch] = True  # Mark as manually scored
+            logging.info(f"N3 button selected. Current epoch: {current_epoch}")
+            st.rerun()  # Force rerun to update UI
+    
+    # Mechanism to navigate through recording.
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        if st.button("Rewind", key="rewind", use_container_width=True, 
-                     on_click=callback_counter, args=(previous_uncertain_epoch, )):
+        if st.button("Rewind", key="rewind", use_container_width=True):
+            st.session_state["fig_config"]["current_epoch"] = previous_uncertain_epoch
             logging.info(f"Rewind button selected. Current epoch: {previous_uncertain_epoch}")
+            st.rerun()  # Force rerun to update UI
     with col2:
-        if st.button("Back", key="back", use_container_width=True, 
-                     on_click=callback_counter, args=(previous_epoch, ), 
-                     disabled=(current_epoch == 0)):
+        if st.button("Back", key="back", use_container_width=True, disabled=(current_epoch == 0)):
+            st.session_state["fig_config"]["current_epoch"] = previous_epoch
             logging.info(f"Back button selected. Current epoch: {previous_epoch}")
+            st.rerun()  
     with col3:
-        if st.button("Forward", key="forward", use_container_width=True, 
-                     on_click=callback_counter, args=(next_epoch, )):
+        if st.button("Forward", key="forward", use_container_width=True):
+            st.session_state["fig_config"]["current_epoch"] = next_epoch
             logging.info(f"Forward button selected. Current epoch: {next_epoch}")
+            st.rerun()
     with col4:
-        if st.button("Fast forward", key="fast_forward", use_container_width=True, 
-                     on_click=callback_counter, args=(next_uncertain_epoch, )):
+        if st.button("Fast forward", key="fast_forward", use_container_width=True):
+            st.session_state["fig_config"]["current_epoch"] = next_uncertain_epoch
             logging.info(f"Fast forward button selected. Current epoch: {next_uncertain_epoch}")
+            st.rerun()
+
     # Add shortcuts for the buttons
     add_shortcuts(
         wake="0",
@@ -164,42 +191,6 @@ def main():
         forward="arrowright",
         fast_forward="arrowup",
     )
-
-    # wake.button("Wake", key="wake", use_container_width=True)
-    # rem.button("REM", key="rem", use_container_width=True)
-    # n1.button("N1", key="n1", use_container_width=True)
-    # n2.button("N2", key="n2", use_container_width=True)
-    # n3.button("N3", key="n3", use_container_width=True)
-
-    # Mechanism to navigate through recording.
-    # rewind, back, forward, fast_forward = st.columns(4)
-    # current_epoch = fig_config["current_epoch"]
-    # with back:
-    #     if shortcut_button(label="Back", shortcut="arrowleft", hint=False, key="back",
-    #                        use_container_width=True, on_click=callback_counter, 
-    #                        args=(current_epoch - 1, ), disabled=(current_epoch == 0)):
-    #         logging.info(f"Back button clicked. Current epoch: {current_epoch - 1}")
-    # with forward:
-    #     if shortcut_button(label="Forward", shortcut="arrowright", hint=False, key="forward",
-    #                        use_container_width=True, on_click=callback_counter, 
-    #                        args=(current_epoch + 1, )):#, disabled=(current_epoch >= data["scoring_processed"]["n_uncertain_periods"])):
-    #         logging.info(f"Forward button clicked. Current epoch: {current_epoch + 1}")
-    # rewind.button("Rewind", key="rewind", use_container_width=True, on_click=callback_counter, 
-    #             args=(find_closest_uncertain_period(data, current_epoch, direction=False), ))
-    # back.button("Back", key="back", use_container_width=True, on_click=callback_counter, 
-    #             args=(current_epoch - 1, ), disabled=(current_epoch == 0))
-    # forward.button("Forward", key="forward", use_container_width=True, on_click=callback_counter, 
-    #             args=(current_epoch + 1, ))#, disabled=(current_epoch >= data[""])
-    # fast_forward.button("Fast forward", key="fast_forward", use_container_width=True, on_click=callback_counter, 
-    #             args=(find_closest_uncertain_period(data, current_epoch, direction=True), ))
-
-    # Add shortcuts for navigation
-    # add_shortcuts(
-    #     back="arrowleft",
-    #     forward="arrowright",
-    #     rewind="arrowdown",
-    #     fast_forward="arrowup",
-    # )
 
 
 def init_logging():
@@ -228,6 +219,8 @@ def init_session_state():
         }
     if "scoring_manual" not in st.session_state:
         st.session_state["scoring_manual"] = np.array([])  # Initialize empty array for manual scoring.
+    if "scoring_manual_mask" not in st.session_state:
+        st.session_state["scoring_manual_mask"] = np.array([]) # Initialize empty array for keeping track of manual scoring.
 
 @st.cache_resource
 def get_connection():
@@ -324,6 +317,36 @@ def sidebar_import_data():
     else:
         st.sidebar.warning("Please select a folder.")
         return None
+
+def upload_file_to_repository():
+    """Sidebar widget to upload a file to the external data repository."""
+    client, _ = get_connection()
+    if not client:
+        st.sidebar.error("No connection to repository.")
+        return
+
+    st.sidebar.header("Upload Data")
+    uploaded_file = st.sidebar.file_uploader("Choose a file to upload", type=["edf", "npy"])
+    if uploaded_file is not None:
+        # Save to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            tmp_file.write(uploaded_file.read())
+            tmp_file_path = tmp_file.name
+
+        # Define remote path
+        remote_path = f"{st.secrets['RDR_REMOTE_PATH']}/{uploaded_file.name}"
+
+        # Upload to WebDAV
+        try:
+            client.upload_sync(remote_path=remote_path, local_path=tmp_file_path)
+            st.sidebar.success(f"Uploaded {uploaded_file.name} to repository.")
+            logging.info(f"Uploaded {uploaded_file.name} to repository.")
+        except Exception as e:
+            st.sidebar.error(f"Upload failed: {e}")
+            logging.error(f"Upload failed: {e}")
+
+        # Clean up temp file
+        os.remove(tmp_file_path)
 
 # def sidebar_control_panel():
 
@@ -479,6 +502,14 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "STANDARD", scale_va
         start_hour = uncertain_period["start_hour"]
         end_hour = uncertain_period["end_hour"] + 30 / 3600
         ax_top.fill_betweenx(y=[0, 5], x1=start_hour, x2=end_hour, color="red", alpha=0.3)
+    # Highlight manually graded periods.
+    manual_scoring_mask = st.session_state["scoring_manual_mask"]
+    logging.info(f"Manual scoring mask: {manual_scoring_mask}")
+    if np.any(manual_scoring_mask):
+        ax_top.fill_betweenx(y=[0, 5], 
+                            x1=scoring_data["time_hrs"][manual_scoring_mask], 
+                            x2=scoring_data["time_hrs"][manual_scoring_mask] + 30 / 3600, 
+                            color="green", alpha=0.3, label="Manually graded periods")
     # Draw line for the current epoch on the top plot.
     current_epoch = data["scoring_processed"]["time_hrs"][n_epoch]
     ax_top.axvline(x=current_epoch, color="blue", linestyle="--", linewidth=1)
@@ -515,13 +546,13 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "STANDARD", scale_va
     ax_bottom.set_xlabel("Time (s)")
     return fig
     
-def callback_counter(current_epoch: int):
-    """Callback function for button clicks."""
-    # Update the current epoch in session state
-    st.session_state["fig_config"]["current_epoch"] = current_epoch
-    # Update the figure in the Streamlit app
-    # st.session_state["fig"] = fig
-    # st.pyplot(fig)
+# def callback_counter(current_epoch: int):
+#     """Callback function for button clicks."""
+#     # Update the current epoch in session state
+#     st.session_state["fig_config"]["current_epoch"] = current_epoch
+#     # Update the figure in the Streamlit app
+#     # st.session_state["fig"] = fig
+#     # st.pyplot(fig)
 
 if __name__ == "__main__":
     # Initialize logging
