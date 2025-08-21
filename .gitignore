@@ -3,3 +3,5 @@
 cache/*
 data/*
 notebooks/*
+__pycache__/
+*.pyc
