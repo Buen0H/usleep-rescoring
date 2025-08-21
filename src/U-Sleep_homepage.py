@@ -26,7 +26,7 @@ import streamlit as st
 import os
 import numpy as np
 import logging
-from src.utils.streamlit_connection_to_radboud import get_connection, download_dataset_from_repository
+from utils.streamlit_connection_to_radboud import get_connection, download_dataset_from_repository
 
 LOG_LEVEL = logging.INFO
 CACHE_PATH = "./cache/"

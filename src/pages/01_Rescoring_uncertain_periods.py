@@ -3,8 +3,8 @@ from typing import Dict
 import streamlit as st
 from streamlit_shortcuts import add_shortcuts
 import numpy as np
-from src.utils.nil_sleep_analysis import analyze_uncertain_periods
-from src.utils.streamlit_connection_to_radboud import upload_file_to_repository
+from utils.nil_sleep_analysis import analyze_uncertain_periods
+from utils.streamlit_connection_to_radboud import upload_file_to_repository
 import matplotlib.pyplot as plt
 
 # ''' This page allows users to rescore uncertain periods in sleep data.
