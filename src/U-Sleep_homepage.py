@@ -36,7 +36,6 @@ import logging
 
 LOG_LEVEL = logging.INFO
 CACHE_PATH = "./cache/"
-SLEEP_STAGE_LABELS = ["Wake", "REM", "N1", "N2", "N3"] 
 
 def main():
     """Main function to run the Streamlit app."""
@@ -47,7 +46,7 @@ def main():
     # Display welcome message
     st.title("Welcome to U-Sleep Rescoring Tool.")
     st.info("This tool allows you to rescore low confidence periods from an autonomous scoring neural network.")
-    # Choose data to download and rescore.
+    # Choose data to download and rescore. Maybe move logic to seperate page.
     st.subheader("Choose data to download and rescore.")
     client, filenames = get_connection()
     if not client:
@@ -80,9 +79,9 @@ def main():
             st.error("Error loading data from Radboud Data Repository. Please check your connection.")
             return
         # Store the dataset in session state
-        st.session_state["dataset"]["scoring"] = dataset["scoring"]
-        st.session_state["dataset"]["raw_obj"] = dataset["raw_obj"]
-        st.session_state["dataset"]["subject_id"] = choice_subject_id
+        st.session_state["dataset_downloaded"]["scoring"] = dataset["scoring"]
+        st.session_state["dataset_downloaded"]["raw_obj"] = dataset["raw_obj"]
+        st.session_state["dataset_downloaded"]["subject_id"] = choice_subject_id
         st.success(f"Data for subject {choice_subject_id} loaded successfully.")
     else:
         st.warning("Please select a subject ID to continue.")
@@ -304,7 +303,7 @@ def init_session_state():
         st.session_state["subject_id"] = None
     # Variable to keep track of the uploaded files.
     if "dataset_downloaded" not in st.session_state:
-        st.session_state["dataset"] = {
+        st.session_state["dataset_downloaded"] = {
             "subject_id": None,     # Will populate with subject ID after data load.
             "scoring": None,        # Will populate with scoring data after data load.
             "raw_obj": None,        # Will populate with raw object after data load.
@@ -323,12 +322,20 @@ def init_session_state():
             "scoring_manual": np.array([]),         # Initialize empty array for manual scoring.
             "scoring_manual_mask": np.array([]),    # Initialize empty array for keeping track of manual scoring.
         }
+    # Variable to keep track of the current epoch.
+    if "current_epoch" not in st.session_state:
+        st.session_state["current_epoch"] = -1  # Initialize to -1 to indicate no epoch selected; will update after data load.
     # Variable to keep track of the current figure configuration.
     if "fig_config" not in st.session_state:
         st.session_state["fig_config"] = {
-            "current_epoch": -1,        # Initialize to -1 to indicate no epoch selected; will update after data load.
-            "raw_obj_selection": None,  # Will populate with raw object selection after data load.
-            "fs": None,                 # Will populate with sampling frequency after data load.
+            "subject_id": None,         # Will populate with subject ID after data load.
+            "svg_paths": {
+                "scoring": f"{CACHE_PATH}/fig_scoring.svg",
+            },            # Will populate with figure path after data load.
+            "figures": {},              # Will populate with figure objects after data load.
+            # "current_epoch": -1,        # Initialize to -1 to indicate no epoch selected; will update after data load.
+            # "raw_obj_selection": None,  # Will populate with raw object selection after data load.
+            # "fs": None,                 # Will populate with sampling frequency after data load.
             "signal_properties": {},    # Will populate with channel properties after data load.
         }
 
