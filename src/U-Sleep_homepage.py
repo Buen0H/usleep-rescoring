@@ -26,25 +26,69 @@ import streamlit as st
 from streamlit_shortcuts import shortcut_button, add_shortcuts
 from webdav3.client import Client
 import os
-from io import BytesIO
 import numpy as np
 import mne
-import tempfile
 from scipy import ndimage
-from scipy.signal import decimate
 from typing import Dict
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import logging
 
 LOG_LEVEL = logging.INFO
-
 CACHE_PATH = "./cache/"
-
 SLEEP_STAGE_LABELS = ["Wake", "REM", "N1", "N2", "N3"] 
-FS_PSG = 500 # get from edf file instead.  
 
 def main():
+    """Main function to run the Streamlit app."""
+    # Skip essential startup if already initialized
+    if "initialized" not in st.session_state:
+        # Run the startup sequence
+        startup_sequence()
+    # Display welcome message
+    st.title("Welcome to U-Sleep Rescoring Tool.")
+    st.info("This tool allows you to rescore low confidence periods from an autonomous scoring neural network.")
+    # Choose data to download and rescore.
+    st.subheader("Choose data to download and rescore.")
+    client, filenames = get_connection()
+    if not client:
+        st.error("Error connecting to Radboud Data Repository. Please check your credentials.")
+        return
+    elif not filenames:
+        st.warning("No files found in the Radboud Data Repository. Please check your connection.")
+        return
+    subject_ids = get_unique_subject_ids(filenames)
+    idx = None
+    if st.session_state.get("subject_id") in subject_ids:
+        idx = subject_ids.index(st.session_state["subject_id"])
+    choice_subject_id = st.selectbox(
+        label="Select subject ID",
+        options=subject_ids,
+        index=idx,
+        help="Select the subject ID to rescore.",
+    )
+
+    # Only update session state if the selection changed
+    if choice_subject_id != st.session_state.get("subject_id"):
+        st.session_state["subject_id"] = choice_subject_id
+        logging.info(f"Selected subject ID: {choice_subject_id}")
+        st.rerun()  # Optional: force rerun to immediately reflect the change
+
+    if choice_subject_id:
+        # Download data from the repository
+        dataset = download_dataset_from_repository(choice_subject_id)
+        if not dataset:
+            st.error("Error loading data from Radboud Data Repository. Please check your connection.")
+            return
+        # Store the dataset in session state
+        st.session_state["dataset"]["scoring"] = dataset["scoring"]
+        st.session_state["dataset"]["raw_obj"] = dataset["raw_obj"]
+        st.session_state["dataset"]["subject_id"] = choice_subject_id
+        st.success(f"Data for subject {choice_subject_id} loaded successfully.")
+    else:
+        st.warning("Please select a subject ID to continue.")
+        return
+
+def main_old():
     """Main function to run the Streamlit app."""
     logging.info("Starting Streamlit app.")
     # Set the title of the app
@@ -214,6 +258,31 @@ def main():
     #     logging.info("Upload file to repository button clicked.")
     #      upload_file_to_repository(CACHE_PATH + f"{subject_id}_scoring_manual.npy")
 
+def startup_sequence():
+    """Run the startup sequence for the Streamlit app."""
+    # Initialize logging
+    init_logging()
+    logging.info("Starting Streamlit app.")
+    # Create cache directory if it doesn't exist
+    if not os.path.exists(CACHE_PATH):
+        os.makedirs(CACHE_PATH)
+    # Initialize session state variables
+    init_session_state()
+    # Set page configuration
+    st.set_page_config(
+        page_title = "U-Sleep Rescoring Tool",
+        page_icon = ":sleeping:",
+        layout = "wide",
+        initial_sidebar_state = "expanded",
+        # menu_items = {
+        #     'Get Help': 'https://www.extremelycoolapp.com/help',
+        #     'Report a bug': "https://www.extremelycoolapp.com/bug",
+        #     'About': "# This is a header. This is an *extremely* cool app!"
+        # }
+    )
+    # Confirm intialization
+    st.session_state["initialized"] = True
+
 def init_logging():
     """Initialize logging."""
     logging.basicConfig(
@@ -227,10 +296,34 @@ def init_logging():
 
 def init_session_state():
     """Initialize session state."""
+    # Variable to keep track of essential startup.
+    if "initialized" not in st.session_state:
+        st.session_state["initialized"] = False
+    # Variable to keep track of the subject id.
     if "subject_id" not in st.session_state:
         st.session_state["subject_id"] = None
-    if not os.path.exists(CACHE_PATH):
-        os.makedirs(CACHE_PATH)
+    # Variable to keep track of the uploaded files.
+    if "dataset_downloaded" not in st.session_state:
+        st.session_state["dataset"] = {
+            "subject_id": None,     # Will populate with subject ID after data load.
+            "scoring": None,        # Will populate with scoring data after data load.
+            "raw_obj": None,        # Will populate with raw object after data load.
+        }
+    # Variable to keep track of processed data.
+    if "dataset_processed" not in st.session_state:
+        st.session_state["dataset_processed"] = {
+            "subject_id": None,         # Will populate with subject ID after data load.
+            "scoring_processed": {},    # Will populate with processed scoring data after data load.
+            "processed_biosignals": {}, # Will populate with processed biosignals after data load.
+        }
+    # Variables to keep track of the manual scoring.
+    if "dataset_rescored" not in st.session_state:
+        st.session_state["dataset_rescored"] = {
+            "subject_id": None,                     # Keep track of rescored subject ID.
+            "scoring_manual": np.array([]),         # Initialize empty array for manual scoring.
+            "scoring_manual_mask": np.array([]),    # Initialize empty array for keeping track of manual scoring.
+        }
+    # Variable to keep track of the current figure configuration.
     if "fig_config" not in st.session_state:
         st.session_state["fig_config"] = {
             "current_epoch": -1,        # Initialize to -1 to indicate no epoch selected; will update after data load.
@@ -238,10 +331,6 @@ def init_session_state():
             "fs": None,                 # Will populate with sampling frequency after data load.
             "signal_properties": {},    # Will populate with channel properties after data load.
         }
-    if "scoring_manual" not in st.session_state:
-        st.session_state["scoring_manual"] = np.array([])  # Initialize empty array for manual scoring.
-    if "scoring_manual_mask" not in st.session_state:
-        st.session_state["scoring_manual_mask"] = np.array([]) # Initialize empty array for keeping track of manual scoring.
 
 @st.cache_resource
 def get_connection():
@@ -266,9 +355,9 @@ def get_unique_subject_ids(filenames):
     return sorted(set(["_".join(filename.split("_")[:2]) for filename in filenames]))
 
 @st.cache_data
-def load_data_from_connection(experiment_name: str):
+def download_dataset_from_repository(experiment_name: str):
     """Load data from the Radboud Data Repository."""
-    # Get the S3 client and bucket name
+    # Get webDAV client and filenames
     client, filenames = get_connection()
     # Find valid files for the selected experiment
     experiment_files = [filename for filename in filenames if filename.startswith(experiment_name) and (filename.endswith(".npy") or filename.endswith(".edf"))]
@@ -276,68 +365,23 @@ def load_data_from_connection(experiment_name: str):
         logging.error(f"No valid files found for experiment {experiment_name}.")
         st.sidebar.error("No valid files found for the selected experiment.")
         return None
-    else:
-        logging.info(f"Found {len(experiment_files)} files for experiment {experiment_name}.")
-        logging.info(f"Files: {experiment_files}")
-        st.sidebar.info(f"Found {len(experiment_files)} files for experiment {experiment_name}.")
-        st.sidebar.info(f"Files: {experiment_files}")
     # Process uploaded files
-    data = {}
+    dataset = {}
     for filename in experiment_files:
-        # Fetch the file from S3
+        # Fetch files from Radboud Data Repository
         local_path = CACHE_PATH + filename
         remote_path = f"{st.secrets['RDR_REMOTE_PATH']}/{filename}"
         client.download(remote_path, local_path)
         # Read the file content according to its type
         if filename.endswith(".npy"):
             logging.info(f"Attempting to load scoring file: {filename}")
-            data["scoring"] = np.load(local_path)
+            dataset["scoring"] = np.load(local_path)
         elif filename.endswith(".edf"):
             logging.info(f"Attempting to load PSG file: {filename}")
-            data["raw_obj"] = mne.io.read_raw_edf(local_path, preload=False, verbose=False)
+            dataset["raw_obj"] = mne.io.read_raw_edf(local_path, preload=False, verbose=False)
         else:
             logging.warning(f"File {filename} is not a valid EDF or NPY file.")
-    return data
-
-def sidebar_import_data():
-    """Sidebar for importing data."""
-    # Initialize AWS client
-    client, filenames = get_connection()
-    if not client:
-        logging.error("Failed to connect to Radboud Data Repository.")
-        st.sidebar.error("Error with connection.")
-        return None
-    logging.info("Connected established.")
-    # Filter for subject ids.
-    experiment_ids = get_unique_subject_ids(filenames)
-    # Populate sidebar with file upload options
-    with st.sidebar:
-        st.header("Import Data")
-        experiment_choice = st.selectbox("Select experiment", experiment_ids, index=None)
-    if experiment_choice:
-        logging.info(f"Selected folder: {experiment_choice}")
-        # Load data from the selected folder
-        data = load_data_from_connection(experiment_choice)
-        if not data:
-            logging.error("No files found in the selected folder.")
-            st.sidebar.error("Error connecting to RDR.")
-            return None
-        # Check if files are valid
-        if "raw_obj" not in data:
-            logging.error("No raw data uploaded.")
-            st.sidebar.error("Error loading data from RDR.")
-            return None
-        elif "scoring" not in data:
-            logging.error("No raw data uploaded.")
-            st.sidebar.error("Error loading data from RDR.")
-            return None
-        # Return data
-        st.session_state["subject_id"] = experiment_choice
-        logging.info(f"Data loaded successfully for subject {experiment_choice}.")
-        return data
-    else:
-        st.sidebar.warning("Please select a folder.")
-        return None
+    return dataset
 
 def upload_file_to_repository(file_path: str = None):
     """Sidebar widget to upload a file to the external data repository."""
@@ -583,9 +627,6 @@ def draw_figure(data, n_epoch: int = 0, auto_scaling: str = "STANDARD"):
 #     # st.pyplot(fig)
 
 if __name__ == "__main__":
-    # Initialize logging
-    init_logging()
-    # Run the main function
     main()
 
             
