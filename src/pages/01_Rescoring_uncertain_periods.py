@@ -6,6 +6,7 @@ import numpy as np
 from utils.nil_sleep_analysis import analyze_uncertain_periods
 from utils.streamlit_connection_to_radboud import upload_file_to_repository
 import matplotlib.pyplot as plt
+plt.style.use('seaborn-v0_8-whitegrid')
 
 # ''' This page allows users to rescore uncertain periods in sleep data.
 
