@@ -81,25 +81,41 @@ def main():
     np.save(f"{st.secrets['CACHE_PATH']}/{subject_id_download}_scoring_manual.npy", dataset_rescored["scoring_manual"])
     # Populate UI elements.
     st.write(f"Currently rescoring uncertain periods for subject: {dataset_processed['subject_id']}")
-    st.image(fig_config["svg_paths"]["scoring"])
-    st.image(fig_config["svg_paths"]["biosignals"])
+    st.image(fig_config["svg_paths"]["scoring"], use_container_width=True)
+    st.image(fig_config["svg_paths"]["biosignals"], use_container_width=True)
+    ## Sidebar for graph configuration.
+    # scale_config = st.session_state["fig_config"]["scaling"]
+    # with st.sidebar:
+    #     st.header("Configuration")
+    #     st.subheader("Scale signals.")
+    #     scale_config["EOG"] = st.number_input("EOG scale (µV)", min_value=10, max_value=500, value=scale_config["EOG"], step=10, key="eog_scale",)
+    #     scale_config["EMG"] = st.number_input("EMG scale (µV)", min_value=10, max_value=500, value=scale_config["EMG"], step=10, key="emg_scale",)
+    #     scale_config["EEG"] = st.number_input("EEG scale (µV)", min_value=10, max_value=500, value=scale_config["EEG"], step=10, key="eeg_scale",)
     ## Variables with the current epoch and previous/next epochs.
     current_epoch = st.session_state["current_epoch"]
     previous_epoch = current_epoch - 1
     next_epoch = current_epoch + 1
     previous_uncertain_epoch, next_uncertain_epoch = find_closest_uncertain_periods(current_epoch)
     ## Mechanism to grade uncertain periods.
+    is_uncertain = dataset_processed["scoring"]["mask_uncertain"][current_epoch]
+    is_graded = dataset_rescored["scoring_manual_mask"][current_epoch]
+    human_scoring = dataset_rescored["scoring_manual"][current_epoch] if is_graded else None
+    auto_scoring = dataset_processed["scoring"]["scoring_naive"][current_epoch]
+    button_labels = SLEEP_STAGE_LABELS.copy()
+    button_labels[auto_scoring] += " :desktop_computer:"
+    if is_graded:
+        button_labels[human_scoring] += " :nerd_face:"
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.button("Wake", key="wake", use_container_width=True,
-                on_click=update_scoring, args=(0, ))
-    col2.button("REM", key="rem", use_container_width=True,
-                on_click=update_scoring, args=(1, ))
-    col3.button("N1", key="n1", use_container_width=True,
-                on_click=update_scoring, args=(2, ))
-    col4.button("N2", key="n2", use_container_width=True,
-                on_click=update_scoring, args=(3, ))
-    col5.button("N3", key="n3", use_container_width=True,
-                on_click=update_scoring, args=(4, ))
+    col1.button(button_labels[0], key="wake", use_container_width=True,
+                on_click=update_scoring, args=(0, ), disabled=not is_uncertain)
+    col2.button(button_labels[1], key="rem", use_container_width=True,
+                on_click=update_scoring, args=(1, ), disabled=not is_uncertain)
+    col3.button(button_labels[2], key="n1", use_container_width=True,
+                on_click=update_scoring, args=(2, ), disabled=not is_uncertain)
+    col4.button(button_labels[3], key="n2", use_container_width=True,
+                on_click=update_scoring, args=(3, ), disabled=not is_uncertain)
+    col5.button(button_labels[4], key="n3", use_container_width=True,
+                on_click=update_scoring, args=(4, ), disabled=not is_uncertain)
     ## Mechanism to navigate through recording.
     col1, col2, col3, col4 = st.columns(4)
     col1.button("Rewind", key="rewind", use_container_width=True,
@@ -117,7 +133,7 @@ def main():
     # Add shortcuts for the buttons
     add_shortcuts(
         wake="w",
-        rem="5",
+        rem="4",
         n1="1",
         n2="2",
         n3="3",
@@ -171,9 +187,19 @@ def process_biosignals(n_epoch: int, subject_id: str) -> Dict:
     egg_channels = [ch for ch in indeces if ch not in eog_channels and ch not in emg_channels]
     ordered_channels = eog_channels + egg_channels + emg_channels
     raw_selection.reorder_channels(ordered_channels)
+    # Get the data and channel labels
+    signals, time = raw_selection[:, :]
+    ch_labels = raw_selection.ch_names
+    # Handle case with single EOG channel by duplicating it
+    if "EOG" in ch_labels:
+        idx_eog = ch_labels.index("EOG")
+        ch_labels.insert(idx_eog + 1, "EOG2")
+        signals = np.insert(signals, idx_eog + 1, signals[idx_eog], axis=0)
     # Create a dictionary to store the processed data
     processed_data = {
-        "raw_obj_cropped": raw_selection,
+        "signals": signals,
+        "time": time,
+        "ch_labels": ch_labels,
         "fs": fs,
     }
     return processed_data
@@ -206,7 +232,7 @@ def create_figures():
     dataset_processed = st.session_state["dataset_processed"]
     scoring_naive = dataset_processed["scoring"]["scoring_naive"]
     time_hrs = dataset_processed["scoring"]["time_hrs"]
-    uncertain_periods = dataset_processed["scoring"]["uncertain_periods"]
+    uncertain_scoring_mask = dataset_processed["scoring"]["mask_uncertain"]
     manual_scoring_mask = st.session_state["dataset_rescored"]["scoring_manual_mask"]
     subject_id = fig_config["subject_id"]
     logging.info(f"Creating figures for {subject_id}.")
@@ -220,10 +246,8 @@ def create_figures():
     ax_scoring.axvline(x=current_epoch_hrs, color="red", linestyle="--", label="Current Epoch")
     ax_scoring.scatter(current_epoch_hrs, scoring_naive[current_epoch], color="red", s=100, zorder=5)
     ## Highlight uncertain periods.
-    for uncertain_period in uncertain_periods:
-        start_hour = uncertain_period["start_hour"]
-        end_hour = uncertain_period["end_hour"] + 30 / 3600
-        ax_scoring.fill_betweenx(y=[0, 5], x1=start_hour, x2=end_hour, color="red", alpha=0.3)
+    if np.any(uncertain_scoring_mask):
+        plot_masked_regions(ax_scoring, uncertain_scoring_mask, time_hrs, color="red")
     ## Highlight manually graded periods.
     if np.any(manual_scoring_mask):
         plot_masked_regions(ax_scoring, manual_scoring_mask, time, color="green")
@@ -233,31 +257,41 @@ def create_figures():
     ax_scoring.set_xlabel("Time (hours)")
     ax_scoring.set_yticks(ticks=range(5), labels=SLEEP_STAGE_LABELS)
     ax_scoring.set_ylim(4.25,-0.25)
+    fig_scoring.tight_layout()
 
     # Create figure to display the raw data for the current epoch.
     logging.info(f"Creating raw data figure for current epoch {current_epoch}.")
-    raw_data = dataset_processed["biosignals"]["raw_obj_cropped"]
-    signals, time = raw_data[:, :]
-    ch_labels = raw_data.ch_names
+    cropped_data = dataset_processed["biosignals"]
+    signals = cropped_data["signals"]
+    time = cropped_data["time"]
+    ch_labels = cropped_data["ch_labels"]
+    ## Create figure.
     fig_raw = plt.figure(figsize=(20, 5))
     ax_raw = fig_raw.add_subplot(1, 1, 1)
-    ## Populate figure with raw data.
+    ## Populate figure with raw data. Move to processing function?
+    scale_config = fig_config["scaling"]
     for idx, (signal, ch_label) in enumerate(zip(signals, ch_labels)):
         # Autoscaling
         if ch_label.startswith("EOG"):
-            scale_val = 150
+            scale_val = scale_config["EOG"]
+            color = "green"
         elif ch_label.startswith("EMG"):
-            scale_val = 50
+            scale_val = scale_config["EMG"]
+            color = "red"
         else:
-            scale_val = 30
+            scale_val = scale_config["EEG"]
+            color = "black"
         c_range = 2 * scale_val 
         signal *= 1e6 # Convert to microvolts
         signal /= c_range
-        ax_raw.plot(time, signal + idx, linewidth=0.5)     
+        ax_raw.plot(time, signal + idx, linewidth=0.5, color=color)     
     ## Configure axes.
     ax_raw.set_title(f"Raw Data for Subject {subject_id} - Epoch {current_epoch}")
     ax_raw.set_xlabel("Time (seconds)")
-    ax_raw.set_ylabel("Channels")   
+    ax_raw.set_ylabel("Channels")  
+    ax_raw.set_yticks(ticks=range(len(ch_labels)), labels=ch_labels)
+    ax_raw.set_ylim(len(ch_labels), -1)     # Plot from top to bottom.
+    fig_raw.tight_layout()
 
     # Save figure to session state.
     fig_config["figures"]["scoring"] = fig_scoring
@@ -308,10 +342,11 @@ def update_biosignals_figure():
     # Get pointers for information inside session state.
     fig_config = st.session_state["fig_config"]
     fig_biosignals = fig_config["figures"]["biosignals"]
-    raw_obj = st.session_state["dataset_processed"]["biosignals"]["raw_obj_cropped"]
+    cropped_data = st.session_state["dataset_processed"]["biosignals"]
     # Update the raw data for the current epoch.
-    signals, time = raw_obj[:, :]
-    ch_labels = raw_obj.ch_names
+    signals = cropped_data["signals"]
+    time = cropped_data["time"]
+    ch_labels = cropped_data["ch_labels"]
     ax_biosignals = fig_biosignals.axes[0]
     for idx, signal in enumerate(signals):
         # Autoscaling

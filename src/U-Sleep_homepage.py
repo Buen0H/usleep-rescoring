@@ -158,11 +158,13 @@ def init_session_state():
                 "scoring": f"{CACHE_PATH}/fig_scoring.svg",
                 "biosignals": f"{CACHE_PATH}/fig_biosignals.svg",
             },            # Will populate with figure path after data load.
-            "figures": {},              # Will populate with figure objects after data load.
-            # "current_epoch": -1,        # Initialize to -1 to indicate no epoch selected; will update after data load.
-            # "raw_obj_selection": None,  # Will populate with raw object selection after data load.
-            # "fs": None,                 # Will populate with sampling frequency after data load.
-            "signal_properties": {},    # Will populate with channel properties after data load.
+            "figures": {},                  # Will populate with figure objects after data load.
+            "scaling": {
+                "EOG": 150,
+                "EMG": 50,
+                "EEG": 30,
+            },                  # Will populate with figure scaling after data load.
+            # "signal_properties": {},    # Will populate with channel properties after data load.
         }
 
 def get_unique_subject_ids(filenames):

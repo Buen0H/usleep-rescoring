@@ -40,6 +40,13 @@ def analyze_uncertain_periods(confidence_data: np.ndarray) -> Dict:
                 'n_epochs': len(region_indices)
             })
     
+    # Crete a time series mask for uncertain periods
+    mask_uncertain = np.zeros(confidence_data.shape[0], dtype=bool)
+    for period in uncertain_periods:
+        start_epoch = int(period['start_hour'] * 3600 / epoch_length)
+        end_epoch = int(period['end_hour'] * 3600 / epoch_length) + 1  # Include the end epoch
+        mask_uncertain[start_epoch:end_epoch] = True
+
     return {
         'n_uncertain_periods': len(uncertain_periods),
         'uncertain_periods': uncertain_periods,
@@ -48,4 +55,5 @@ def analyze_uncertain_periods(confidence_data: np.ndarray) -> Dict:
         'max_possible_conf': max_possible_conf,
         "scoring_naive": np.argmax(confidence_data, axis=1),
         "time_hrs": time_hrs,  # 30 seconds per epoch
+        "mask_uncertain": mask_uncertain,
     }
