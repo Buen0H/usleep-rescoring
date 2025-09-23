@@ -41,10 +41,10 @@ def download_dataset_from_repository(experiment_name: str):
         remote_path = f"{st.secrets['RDR_REMOTE_PATH']}/{filename}"
         client.download(remote_path, local_path)
         # Read the file content according to its type
-        if filename.endswith(".npy"):
+        if filename.endswith("conf.npy"):
             logging.info(f"Attempting to load scoring file: {filename}")
             dataset["scoring"] = np.load(local_path)
-        elif filename.endswith(".edf"):
+        elif filename.endswith("sleepscoring_manual.edf"):
             logging.info(f"Attempting to load PSG file: {filename}")
             dataset["raw_obj"] = mne.io.read_raw_edf(local_path, preload=False, verbose=False)
         else:
