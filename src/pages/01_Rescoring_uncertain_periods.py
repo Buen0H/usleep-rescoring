@@ -16,6 +16,7 @@ plt.style.use('seaborn-v0_8-whitegrid')
 # '''
 
 SLEEP_STAGE_LABELS = ["Wake", "REM", "N1", "N2", "N3"] # Sleep stage labels.
+DISPLAY_ORDER_MAP = {0: 0, 1: 2, 2: 3, 3: 4, 4: 1}  # Desired display order: Wake, REM, N1, N2, N3
 
 def main():
     # Set the title of the Streamlit app.
@@ -242,6 +243,9 @@ def create_figures():
     logging.info(f"Creating scoring figure with current epoch at {current_epoch_hrs} hours ({current_epoch}).")
     fig_scoring = plt.figure(figsize=(20, 2))
     ax_scoring = fig_scoring.add_subplot(1, 1, 1)
+    ## Adjust sleep stage display order.
+    scoring_naive_remapped = [DISPLAY_ORDER_MAP[stage] for stage in scoring_naive]
+    scoring_naive = np.array(scoring_naive_remapped)
     ## Populate figure with scoring data.
     ax_scoring.step(time_hrs, scoring_naive, where="mid", color="black")
     ax_scoring.axvline(x=current_epoch_hrs, color="red", linestyle="--", label="Current Epoch")
