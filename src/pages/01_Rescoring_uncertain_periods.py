@@ -15,7 +15,7 @@ plt.style.use('seaborn-v0_8-whitegrid')
 
 # '''
 
-SLEEP_STAGE_LABELS = ["Wake", "REM", "N1", "N2", "N3"] # Sleep stage labels.
+SLEEP_STAGE_LABELS = ["Wake", "REM", "N1", "N2", "N3"] # Sleep stage labels. Display only.
 DISPLAY_ORDER_MAP = {0: 0, 1: 2, 2: 3, 3: 4, 4: 1}  # Desired display order: Wake, REM, N1, N2, N3
 
 def main():
@@ -98,7 +98,7 @@ def main():
     previous_epoch = current_epoch - 1
     next_epoch = current_epoch + 1
     previous_uncertain_epoch, next_uncertain_epoch = find_closest_uncertain_periods(current_epoch)
-    ## Mechanism to grade uncertain periods.
+    ## Mechanism to grade uncertain periods. Button() args match input npy format.
     is_uncertain = dataset_processed["scoring"]["mask_uncertain"][current_epoch]
     is_graded = dataset_rescored["scoring_manual_mask"][current_epoch]
     human_scoring = dataset_rescored["scoring_manual"][current_epoch] if is_graded else None
@@ -111,13 +111,13 @@ def main():
     col1.button(button_labels[0], key="wake", use_container_width=True,
                 on_click=update_scoring, args=(0, ), disabled=not is_uncertain)
     col2.button(button_labels[1], key="rem", use_container_width=True,
-                on_click=update_scoring, args=(1, ), disabled=not is_uncertain)
-    col3.button(button_labels[2], key="n1", use_container_width=True,
-                on_click=update_scoring, args=(2, ), disabled=not is_uncertain)
-    col4.button(button_labels[3], key="n2", use_container_width=True,
-                on_click=update_scoring, args=(3, ), disabled=not is_uncertain)
-    col5.button(button_labels[4], key="n3", use_container_width=True,
                 on_click=update_scoring, args=(4, ), disabled=not is_uncertain)
+    col3.button(button_labels[2], key="n1", use_container_width=True,
+                on_click=update_scoring, args=(1, ), disabled=not is_uncertain)
+    col4.button(button_labels[3], key="n2", use_container_width=True,
+                on_click=update_scoring, args=(2, ), disabled=not is_uncertain)
+    col5.button(button_labels[4], key="n3", use_container_width=True,
+                on_click=update_scoring, args=(3, ), disabled=not is_uncertain)
     ## Mechanism to navigate through recording.
     col1, col2, col3, col4 = st.columns(4)
     col1.button("Rewind", key="rewind", use_container_width=True,
