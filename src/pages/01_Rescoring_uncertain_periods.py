@@ -1,4 +1,6 @@
 import logging
+import time
+import os
 from typing import Dict
 import streamlit as st
 from streamlit_shortcuts import add_shortcuts
@@ -61,6 +63,9 @@ def main():
         dataset_processed["biosignals"] = process_biosignals(current_epoch, subject_id_download)
         # Set name for processed data held in session state.
         dataset_processed["subject_id"] = subject_id_download
+        curr_time_str = time.strftime("%Y%m%d_%H%M%S")
+        manual_scoring_filename = f"{subject_id_download}_scoring_manual_{curr_time_str}.npy"
+        st.session_state["manual_scoring_filename"] = manual_scoring_filename
         ## Initialize rescoring data structure from processed data.
         logging.info(f"Initializing rescoring for subject {dataset_processed['subject_id']}")
         scoring_array = dataset_processed["scoring"]["scoring_naive"]
@@ -80,7 +85,7 @@ def main():
         update_biosignals_figure()
         fig_config["current_epoch"] = st.session_state["current_epoch"]
     # Save manually scored information.
-    np.save(f"{st.secrets['CACHE_PATH']}/{subject_id_download}_scoring_manual.npy", dataset_rescored["scoring_manual"])
+    np.save(os.path.join(st.secrets['CACHE_PATH'],st.session_state["manual_scoring_filename"]), dataset_rescored["scoring_manual"])
     # Populate UI elements.
     st.write(f"Currently rescoring uncertain periods for subject: {dataset_processed['subject_id']}")
     st.image(fig_config["svg_paths"]["scoring"], use_container_width=True)
@@ -147,17 +152,17 @@ def main():
 
     # Buttons to download locally or upload files to the repository.
     col1, col2 = st.columns(2)
-    with open(f"{st.secrets['CACHE_PATH']}/{subject_id_download}_scoring_manual.npy", "rb") as f:
+    with open(os.path.join(st.secrets["CACHE_PATH"], st.session_state["manual_scoring_filename"]), "rb") as f:
         col1.download_button(
             label="Download scoring file",
             data=f,
-            file_name=f"{subject_id_download}_scoring_manual.npy",
+            file_name=st.session_state["manual_scoring_filename"],
             mime="application/octet-stream",
             use_container_width=True,
         )
     if col2.button("Upload file to repository", use_container_width=True):
         logging.info("Upload file to repository button clicked.")
-        err = upload_file_to_repository(st.secrets["CACHE_PATH"] + f"{subject_id_download}_scoring_manual.npy")
+        err = upload_file_to_repository(os.path.join(st.secrets["CACHE_PATH"], st.session_state["manual_scoring_filename"]))
         if err:
             st.success("File uploaded successfully.")
         else:

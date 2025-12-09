@@ -166,6 +166,9 @@ def init_session_state():
             },                  # Will populate with figure scaling after data load.
             # "signal_properties": {},    # Will populate with channel properties after data load.
         }
+    # Variable to keep track of the manual scoring filename.
+    if "manual_scoring_filename" not in st.session_state:
+        st.session_state["manual_scoring_filename"] = None
 
 def get_unique_subject_ids(filenames):
     """Extract unique subject IDs from filenames."""

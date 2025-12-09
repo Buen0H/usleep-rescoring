@@ -3,6 +3,7 @@ from webdav3.client import Client
 import logging
 import numpy as np
 import mne
+import os
 
 @st.cache_resource
 def get_connection():
@@ -59,7 +60,9 @@ def upload_file_to_repository(file_path: str = None):
         return False
 
     # Define remote path
-    remote_path = f"{st.secrets['RDR_UPLOAD_PATH']}/{st.session_state['subject_id']}_scoring_manual.npy"
+    filename = os.path.basename(file_path)
+    remote_path = os.path.join(st.secrets['RDR_UPLOAD_PATH'], filename)
+
 
     # Upload to WebDAV
     try:
