@@ -88,8 +88,8 @@ def main():
     np.save(os.path.join(st.secrets['CACHE_PATH'],st.session_state["manual_scoring_filename"]), dataset_rescored["scoring_manual"])
     # Populate UI elements.
     st.write(f"Currently rescoring uncertain periods for subject: {dataset_processed['subject_id']}")
-    st.image(fig_config["svg_paths"]["scoring"], use_container_width=True)
-    st.image(fig_config["svg_paths"]["biosignals"], use_container_width=True)
+    st.image(fig_config["svg_paths"]["scoring"], width="stretch")
+    st.image(fig_config["svg_paths"]["biosignals"], width="stretch")
     ## Sidebar for graph configuration.
     # scale_config = st.session_state["fig_config"]["scaling"]
     # with st.sidebar:
@@ -106,35 +106,35 @@ def main():
     ## Mechanism to grade uncertain periods. Button() args match input npy format.
     is_uncertain = dataset_processed["scoring"]["mask_uncertain"][current_epoch]
     is_graded = dataset_rescored["scoring_manual_mask"][current_epoch]
-    human_scoring = dataset_rescored["scoring_manual"][current_epoch] if is_graded else None
-    auto_scoring = dataset_processed["scoring"]["scoring_naive"][current_epoch]
+    human_scoring = DISPLAY_ORDER_MAP[dataset_rescored["scoring_manual"][current_epoch]] if is_graded else None
+    auto_scoring = DISPLAY_ORDER_MAP[dataset_processed["scoring"]["scoring_naive"][current_epoch]]
     button_labels = SLEEP_STAGE_LABELS.copy()
     button_labels[auto_scoring] += " :desktop_computer:"
     if is_graded:
         button_labels[human_scoring] += " :nerd_face:"
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.button(button_labels[0], key="wake", use_container_width=True,
+    col1.button(button_labels[0], key="wake", width="stretch",
                 on_click=update_scoring, args=(0, ), disabled=not is_uncertain)
-    col2.button(button_labels[1], key="rem", use_container_width=True,
+    col2.button(button_labels[1], key="rem", width="stretch",
                 on_click=update_scoring, args=(4, ), disabled=not is_uncertain)
-    col3.button(button_labels[2], key="n1", use_container_width=True,
+    col3.button(button_labels[2], key="n1", width="stretch",
                 on_click=update_scoring, args=(1, ), disabled=not is_uncertain)
-    col4.button(button_labels[3], key="n2", use_container_width=True,
+    col4.button(button_labels[3], key="n2", width="stretch",
                 on_click=update_scoring, args=(2, ), disabled=not is_uncertain)
-    col5.button(button_labels[4], key="n3", use_container_width=True,
+    col5.button(button_labels[4], key="n3", width="stretch",
                 on_click=update_scoring, args=(3, ), disabled=not is_uncertain)
     ## Mechanism to navigate through recording.
     col1, col2, col3, col4 = st.columns(4)
-    col1.button("Rewind", key="rewind", use_container_width=True,
+    col1.button("Rewind", key="rewind", width="stretch",
                 # disabled=(current_epoch == previous_uncertain_epoch),
                 on_click=update_epoch, args=(previous_uncertain_epoch, ))
-    col2.button("Back", key="back", use_container_width=True,
+    col2.button("Back", key="back", width="stretch",
                 disabled=(current_epoch == 0),
                 on_click=update_epoch, args=(previous_epoch, ))
-    col3.button("Forward", key="forward", use_container_width=True,
+    col3.button("Forward", key="forward", width="stretch",
                 disabled=(current_epoch == len(dataset_processed["scoring"]["scoring_naive"]) - 1),
                 on_click=update_epoch, args=(next_epoch, ))
-    col4.button("Fast forward", key="fast_forward", use_container_width=True,
+    col4.button("Fast forward", key="fast_forward", width="stretch",
                 disabled=(current_epoch == next_uncertain_epoch),
                 on_click=update_epoch, args=(next_uncertain_epoch, ))
     # Add shortcuts for the buttons
@@ -158,9 +158,9 @@ def main():
             data=f,
             file_name=st.session_state["manual_scoring_filename"],
             mime="application/octet-stream",
-            use_container_width=True,
+            width="stretch",
         )
-    if col2.button("Upload file to repository", use_container_width=True):
+    if col2.button("Upload file to repository", width="stretch"):
         logging.info("Upload file to repository button clicked.")
         err = upload_file_to_repository(os.path.join(st.secrets["CACHE_PATH"], st.session_state["manual_scoring_filename"]))
         if err:
@@ -319,6 +319,9 @@ def update_scoring_figure(current_epoch: int):
     fig_config = st.session_state["fig_config"]
     fig_scoring = fig_config["figures"]["scoring"]
     scoring_naive = st.session_state["dataset_processed"]["scoring"]["scoring_naive"]
+    ## Adjust sleep stage display order.
+    scoring_naive_remapped = [DISPLAY_ORDER_MAP[stage] for stage in scoring_naive]
+    scoring_naive = np.array(scoring_naive_remapped)
     # Get the current time in hours.
     current_epoch_hrs = current_epoch * 30 / 3600  # Convert epoch to hours.
     # Update the vertical line and scatter point for the current epoch.
