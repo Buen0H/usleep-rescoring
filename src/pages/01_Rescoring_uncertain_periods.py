@@ -1,5 +1,6 @@
 import logging
-import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import os
 from typing import Dict
 import streamlit as st
@@ -63,7 +64,7 @@ def main():
         dataset_processed["biosignals"] = process_biosignals(current_epoch, subject_id_download)
         # Set name for processed data held in session state.
         dataset_processed["subject_id"] = subject_id_download
-        curr_time_str = time.strftime("%Y%m%d_%H%M%S")
+        curr_time_str = get_CET_time_str()
         manual_scoring_filename = f"{subject_id_download}_scoring_manual_{curr_time_str}.npy"
         st.session_state["manual_scoring_filename"] = manual_scoring_filename
         ## Initialize rescoring data structure from processed data.
@@ -429,6 +430,11 @@ def update_scoring(scoring: int):
     if next_epoch < len(dataset_rescored["scoring_manual"]):
         st.session_state["current_epoch"] = next_epoch
         logging.info(f"Moving to next epoch {next_epoch}.")
+
+def get_CET_time_str():
+    """Return current Central European Time as YYYYMMDD_HHMMSS."""
+    cet_dt = datetime.now(ZoneInfo("Europe/Amsterdam"))
+    return cet_dt.strftime("%Y%m%d_%H%M%S")
 
 if __name__ == "__main__":
     main()
