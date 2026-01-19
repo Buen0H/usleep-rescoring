@@ -184,9 +184,9 @@ def process_biosignals(n_epoch: int, subject_id: str) -> Dict:
     raw_obj = st.session_state["dataset_downloaded"]["raw_obj"]
     # Get the sampling frequency from the raw data
     fs = raw_obj.info["sfreq"]
-    # Get the time slice for the current epoch
-    time_start = n_epoch * 30
-    time_stop = (n_epoch + 1) * 30
+    # Get the time slice for the current epoch. Added safeguards.
+    time_start = max(0, n_epoch * 30)
+    time_stop = min((n_epoch + 1) * 30, raw_obj.times[-1])
     raw_selection = raw_obj.copy().crop(tmin=time_start, tmax=time_stop)
     # Sort channels for visualization
     indeces = raw_selection.ch_names
