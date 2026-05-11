@@ -1,7 +1,7 @@
 .venv
 src/.streamlit/secrets.toml
-src/cache/*
 data/*
 notebooks/*
 __pycache__/
 *.pyc
+*/cache/*
