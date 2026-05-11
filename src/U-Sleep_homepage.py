@@ -138,8 +138,9 @@ def init_session_state():
             "subject_id": None,         # Will populate with subject ID after data load.
             "scoring": {},    # Will populate with processed scoring data after data load.
             "biosignals": {}, # Will populate with processed biosignals after data load.
+            "wake_events": {}, # Will populate with wake events data after data load.
         }
-    # Variables to keep track of the manual scoring.
+    # Variables to keep track of the manual scoring; move to dataset_processed.
     if "dataset_rescored" not in st.session_state:
         st.session_state["dataset_rescored"] = {
             "subject_id": None,                     # Keep track of rescored subject ID.
