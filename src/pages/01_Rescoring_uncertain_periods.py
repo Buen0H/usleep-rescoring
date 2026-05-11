@@ -9,6 +9,7 @@ import numpy as np
 from utils.nil_sleep_analysis import analyze_uncertain_periods
 from utils.figures import draw_hypnogram, draw_polysomnography, update_hypnogram, update_polysomnography
 from utils.streamlit_connection_to_radboud import upload_file_to_repository
+from utils.utils import safely_startup_page
 import matplotlib.pyplot as plt
 plt.style.use('seaborn-v0_8-whitegrid')
 
@@ -25,23 +26,11 @@ DISPLAY_ORDER_MAP = {0: 0, 1: 2, 2: 3, 3: 4, 4: 1}  # Desired display order: Wak
 def main():
     # Set the title of the Streamlit app.
     st.title("Rescoring Uncertain Periods")
-    # Check if the session state is initialized. Likely caused by a refresh.
-    if "initialized" not in st.session_state:
-        logging.error("Session state not initialized.")
-        st.error("Refresh detected. Please go back to the homepage.")
-        return
-    # Check if user has downloaded a dataset.
-    subject_id_choice = st.session_state["subject_id"]
-    subject_id_download = st.session_state["dataset_downloaded"]["subject_id"]
-    if subject_id_choice is None:
-        st.warning("Please select a subject from the homepage to rescore uncertain periods.")
-        logging.warning("No subject ID selected for rescoring.")
-        return
-    elif subject_id_choice != subject_id_download:
-        st.warning(f"Please go back to homepage and allow for download to complete.")
-        logging.warning(f"Subject ID {subject_id_choice} does not match downloaded subject ID {subject_id_download}.")
+    # Startup sequence.
+    if not safely_startup_page():
         return
     # Get pointers from session state.
+    subject_id_download = st.session_state["dataset_downloaded"]["subject_id"]
     dataset_processed = st.session_state["dataset_processed"]
     dataset_rescored = st.session_state["dataset_rescored"]
     fig_config = st.session_state["fig_config"]
