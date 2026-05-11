@@ -26,7 +26,9 @@ import streamlit as st
 import os
 import numpy as np
 import logging
+
 from utils.streamlit_connection_to_radboud import get_connection, download_dataset_from_repository
+from utils.utils import process_scoring_data
 
 LOG_LEVEL = logging.INFO
 CACHE_PATH = "./cache/"
@@ -77,6 +79,12 @@ def main():
         st.session_state["dataset_downloaded"]["raw_obj"] = dataset["raw_obj"]
         st.session_state["dataset_downloaded"]["subject_id"] = choice_subject_id
         st.success(f"Data for subject {choice_subject_id} loaded successfully.")
+        # Process the dataset and store the processed data in session state
+        dataset_processed = st.session_state["dataset_processed"]
+        ## Process downloaded data.
+        logging.info(f"Processing data for subject {choice_subject_id}.")
+        # Process for uncertain periods.
+        dataset_processed["scoring"] = process_scoring_data(choice_subject_id)
     else:
         st.warning("Please select a subject ID to continue.")
         return
@@ -104,7 +112,7 @@ def startup_sequence():
         # }
     )
     # Confirm intialization
-    st.session_state["initialized"] = True
+    st.session_state["initialized"]["global"] = True
 
 def init_logging():
     """Initialize logging."""
@@ -121,7 +129,12 @@ def init_session_state():
     """Initialize session state."""
     # Variable to keep track of essential startup.
     if "initialized" not in st.session_state:
-        st.session_state["initialized"] = False
+        st.session_state["initialized"] = {
+            "global": False,   # Indicates if the global startup sequence has been completed.
+            "page_01": False,    # Indicates if the startup sequence for page 01 has been completed.
+            "page_02": False,    # Indicates if the startup sequence for page 02 has been completed.
+            # Add more pages as needed.
+        }
     # Variable to keep track of the subject id.
     if "subject_id" not in st.session_state:
         st.session_state["subject_id"] = None

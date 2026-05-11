@@ -9,7 +9,7 @@ import numpy as np
 from utils.nil_sleep_analysis import analyze_uncertain_periods
 from utils.figures import draw_hypnogram, draw_polysomnography, update_hypnogram, update_polysomnography
 from utils.streamlit_connection_to_radboud import upload_file_to_repository
-from utils.utils import safely_startup_page
+from utils.utils import safely_startup_page, process_biosignals
 import matplotlib.pyplot as plt
 plt.style.use('seaborn-v0_8-whitegrid')
 
@@ -36,10 +36,6 @@ def main():
     fig_config = st.session_state["fig_config"]
     # Handle loading of new subject.
     if dataset_processed["subject_id"] != subject_id_download: # Handle new subject.
-        ## Process downloaded data.
-        logging.info(f"Processing data for subject {subject_id_download}.")
-        # Process for uncertain periods.
-        dataset_processed["scoring"] = process_scoring_data(subject_id_download)
         # Set the current epoch to be the first uncertain period, if any.
         current_epoch = 0
         if dataset_processed["scoring"]["n_uncertain_periods"] == 0:
@@ -159,49 +155,6 @@ def main():
             st.success("File uploaded successfully.")
         else:
             st.error("Failed to upload file. Please check the logs for more details.")
-
-@st.cache_data
-def process_scoring_data(subject_id: str) -> Dict:
-    """Process scoring data to extract uncertain periods."""
-    # Get pointer to scoring data from session state
-    confidence_data = st.session_state["dataset_downloaded"]["scoring"]
-    # Analyze uncertain periods in the scoring data
-    scoring_processed = analyze_uncertain_periods(confidence_data)
-    return scoring_processed
-
-def process_biosignals(n_epoch: int, subject_id: str) -> Dict:
-    """Process biosignals for visualization."""
-    # Get pointer to raw object
-    raw_obj = st.session_state["dataset_downloaded"]["raw_obj"]
-    # Get the sampling frequency from the raw data
-    fs = raw_obj.info["sfreq"]
-    # Get the time slice for the current epoch. Added safeguards.
-    time_start = max(0, n_epoch * 30)
-    time_stop = min((n_epoch + 1) * 30, raw_obj.times[-1])
-    raw_selection = raw_obj.copy().crop(tmin=time_start, tmax=time_stop)
-    # Sort channels for visualization
-    indeces = raw_selection.ch_names
-    eog_channels = [ch for ch in indeces if "EOG" in ch]
-    emg_channels = [ch for ch in indeces if "EMG" in ch]
-    egg_channels = [ch for ch in indeces if ch not in eog_channels and ch not in emg_channels]
-    ordered_channels = eog_channels + egg_channels + emg_channels
-    raw_selection.reorder_channels(ordered_channels)
-    # Get the data and channel labels
-    signals, time = raw_selection[:, :]
-    ch_labels = raw_selection.ch_names
-    # Handle case with single EOG channel by duplicating it
-    if "EOG" in ch_labels:
-        idx_eog = ch_labels.index("EOG")
-        ch_labels.insert(idx_eog + 1, "EOG2")
-        signals = np.insert(signals, idx_eog + 1, signals[idx_eog], axis=0)
-    # Create a dictionary to store the processed data
-    processed_data = {
-        "signals": signals,
-        "time": time,
-        "ch_labels": ch_labels,
-        "fs": fs,
-    }
-    return processed_data
 
 def find_closest_uncertain_periods(current_epoch: int) -> tuple[int, int]:
     """Find the closest uncertain period to the current epoch in both directions."""
