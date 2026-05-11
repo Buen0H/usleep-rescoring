@@ -12,6 +12,7 @@ def get_connection():
         'webdav_hostname': st.secrets["RDR_HOSTNAME"],
         'webdav_login':    st.secrets["RDR_USERNAME"],
         'webdav_password': st.secrets["RDR_PASSWORD"],
+        'webdav_timeout': 60,
     }
     # Initialize the WebDAV client
     rdr_client = Client(options)
