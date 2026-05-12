@@ -1,8 +1,9 @@
 import logging
-
 import streamlit as st
 import mne
 import numpy as np
+from streamlit_shortcuts import add_shortcuts
+
 from utils.figures import draw_hypnogram, draw_polysomnography
 from utils.utils import safely_startup_page, process_biosignals
 
@@ -58,6 +59,14 @@ def main():
                 disabled=(current_epoch == next_wake_event or next_wake_event is None),
                 on_click=update_epoch, args=(next_wake_event, ))
     
+    # Add shortcuts for the buttons
+    add_shortcuts(
+        rewind="arrowdown",
+        back="arrowleft",
+        forward="arrowright",
+        fast_forward="arrowup",
+    )
+    
     # Debugging information.
     st.subheader("Debugging Information")
     events, event_ids = st.session_state["dataset_processed"]["wake_events"]
@@ -88,14 +97,16 @@ def update_epoch(epoch: int):
 
 def find_closest_wake_events(current_epoch: int):
     """Find the closest wake events to the current epoch."""
-    events, event_ids = st.session_state["dataset_processed"]["wake_events"]
+    events, _ = st.session_state["dataset_processed"]["wake_events"]
     if len(events) == 0:
         return None, None
     fs = st.session_state["dataset_downloaded"]["raw_obj"].info["sfreq"]
     event_epochs = events[:, 0] / fs / 30  # Convert event times to epochs.
+    event_epochs = [int(epoch) for epoch in event_epochs]  # Convert to integers to point to epoch.
     previous_wake_event = max([epoch for epoch in event_epochs if epoch < current_epoch], default=None)
     next_wake_event = min([epoch for epoch in event_epochs if epoch > current_epoch], default=None)
-    return previous_wake_event, next_wake_event
+    return int(previous_wake_event) if previous_wake_event is not None else None, \
+            int(next_wake_event) if next_wake_event is not None else None
 
 if __name__ == "__main__":
     main()
