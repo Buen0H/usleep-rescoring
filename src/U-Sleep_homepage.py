@@ -160,6 +160,12 @@ def init_session_state():
             "scoring_manual": np.array([]),         # Initialize empty array for manual scoring.
             "scoring_manual_mask": np.array([]),    # Initialize empty array for keeping track of manual scoring.
         }
+    # Variables for wake time identification; move to dataset_processed.
+    if "wake_time_identification" not in st.session_state:
+        st.session_state["wake_time_identification"] = {
+            "subject_id": None,                     # Keep track of subject ID for wake time identification.
+            "wake_time_selection": None,                 # Keep track of manually selected wake time.
+        }
     # Variable to keep track of the current epoch.
     if "current_epoch" not in st.session_state:
         st.session_state["current_epoch"] = -1  # Initialize to -1 to indicate no epoch selected; will update after data load.
@@ -183,6 +189,9 @@ def init_session_state():
     # Variable to keep track of the manual scoring filename.
     if "manual_scoring_filename" not in st.session_state:
         st.session_state["manual_scoring_filename"] = None
+    # UI elements.
+    if "slider_wake_choice" not in st.session_state:
+        st.session_state["slider_wake_choice"] = 0  # Initialize to 0; will update based on current epoch and wake time selection.
 
 def get_unique_subject_ids(filenames):
     """Extract unique subject IDs from filenames."""

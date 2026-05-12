@@ -87,12 +87,14 @@ def draw_hypnogram(draw_scoring_mask: bool = False, draw_wake_events: bool = Fal
     fig_scoring_path = fig_config["svg_paths"]["scoring"] 
     fig_scoring.savefig(fig_scoring_path)
 
-def draw_polysomnography():
+def draw_polysomnography(draw_wake_events: bool = False):
     """Create figure to display the raw data for the current epoch."""
     # Get pointers for information inside session state.
     fig_config = st.session_state["fig_config"]
     dataset_processed = st.session_state["dataset_processed"]
     subject_id = fig_config["subject_id"]
+    events, event_ids = dataset_processed["wake_events"]
+    fs = st.session_state["dataset_downloaded"]["raw_obj"].info["sfreq"]
 
     cropped_data = dataset_processed["biosignals"]
     signals = cropped_data["signals"]
@@ -118,6 +120,13 @@ def draw_polysomnography():
         signal *= 1e6 # Convert to microvolts
         signal /= c_range
         ax_raw.plot(time, signal + idx, linewidth=0.5, color=color)     
+    if draw_wake_events and len(events) > 0:
+        wake_event_times = events[:, 0] / fs  # Convert to seconds.
+        wake_event_times = wake_event_times - st.session_state["current_epoch"] * 30  # Center around current epoch.
+        for wake_time in wake_event_times:
+            if 0 <= wake_time <= 30:  # Only plot wake events that are within the current epoch.
+                ax_raw.axvline(x=wake_time, color="blue", linestyle="--", label="Wake Event")
+        ax_raw.legend(loc="upper right")
     ## Configure axes.
     ax_raw.set_title(f"Raw Data for Subject {subject_id} - Epoch {st.session_state['current_epoch']}")
     ax_raw.set_xlabel("Time (seconds)")
