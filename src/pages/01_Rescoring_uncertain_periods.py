@@ -6,12 +6,13 @@ from typing import Dict
 import streamlit as st
 from streamlit_shortcuts import add_shortcuts
 import numpy as np
+import matplotlib.pyplot as plt
+plt.style.use('seaborn-v0_8-whitegrid')
+
 from utils.nil_sleep_analysis import analyze_uncertain_periods
 from utils.figures import draw_hypnogram, draw_polysomnography, update_hypnogram, update_polysomnography
 from utils.streamlit_connection_to_radboud import upload_file_to_repository
 from utils.utils import safely_startup_page, process_biosignals
-import matplotlib.pyplot as plt
-plt.style.use('seaborn-v0_8-whitegrid')
 
 # ''' This page allows users to rescore uncertain periods in sleep data.
 
@@ -35,7 +36,7 @@ def main():
     dataset_rescored = st.session_state["dataset_rescored"]
     fig_config = st.session_state["fig_config"]
     # Handle loading of new subject.
-    if dataset_processed["subject_id"] != subject_id_download: # Handle new subject.
+    if st.session_state["initialized"]["page_01"] == False: # Handle new subject.
         # Set the current epoch to be the first uncertain period, if any.
         current_epoch = 0
         if dataset_processed["scoring"]["n_uncertain_periods"] == 0:
@@ -63,6 +64,8 @@ def main():
         fig_config["subject_id"] = dataset_processed["subject_id"]
         draw_hypnogram(draw_scoring_mask=True)
         draw_polysomnography()
+        st.session_state["initialized"]["page_01"] = True
+        st.session_state["initialized"]["page_02"] = False  # Reset page 2 initialization.
     # Update figure configuration if current epoch changed.
     current_epoch = st.session_state["current_epoch"]
     if current_epoch != fig_config["current_epoch"]:

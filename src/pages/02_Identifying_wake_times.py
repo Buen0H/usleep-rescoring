@@ -31,6 +31,7 @@ def main():
             st.warning("No wake events detected in the annotations for this subject.")
             return;
         st.session_state["initialized"]["page_02"] = True
+        st.session_state["initialized"]["page_01"] = False  # Reset page 1 initialization.
     else: ## For subsequent runtimes, just get wake events.
         events, event_ids = st.session_state["dataset_processed"]["wake_events"]
     ## Get biosignals for the current epoch.
@@ -90,7 +91,9 @@ def main():
     st.write(events)
     st.write(event_ids)
     st.write(current_epoch, previous_wake_event, next_wake_event)
-    st.write(st.session_state["wake_time_identification"]["wake_time_selection"])
+    wake_rescored = st.session_state["wake_time_identification"]["wake_time_selection"]
+    st.write(wake_rescored)
+    st.write(wake_rescored - current_epoch * 30)  # Show wake time selection relative to current epoch.
 
 def is_valid_event_id(event_id):
     return event_id.startswith(("a_NREM", "a_REM")) and event_id.endswith("s")

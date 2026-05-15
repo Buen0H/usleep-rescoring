@@ -93,7 +93,6 @@ def draw_polysomnography(draw_wake_events: bool = False):
     fig_config = st.session_state["fig_config"]
     dataset_processed = st.session_state["dataset_processed"]
     subject_id = fig_config["subject_id"]
-    events, event_ids = dataset_processed["wake_events"]
     fs = st.session_state["dataset_downloaded"]["raw_obj"].info["sfreq"]
 
     cropped_data = dataset_processed["biosignals"]
@@ -120,18 +119,20 @@ def draw_polysomnography(draw_wake_events: bool = False):
         signal *= 1e6 # Convert to microvolts
         signal /= c_range
         ax_raw.plot(time, signal + idx, linewidth=0.5, color=color)     
-    if draw_wake_events and len(events) > 0:
-        wake_event_times = events[:, 0] / fs  # Convert to seconds.
-        wake_event_times = wake_event_times - st.session_state["current_epoch"] * 30  # Center around current epoch.
-        for wake_time in wake_event_times:
-            if 0 <= wake_time <= 30:  # Only plot wake events that are within the current epoch.
-                idx = wake_event_times.tolist().index(wake_time)
-                wake_rescored = st.session_state["wake_time_identification"]["wake_time_selection"][idx]
-                wake_rescored -= st.session_state["current_epoch"] * 30  # Center around current epoch.
-                ax_raw.axvline(x=wake_time, color="blue", linestyle="--", label="Wake Event", linewidth=3)
-                if wake_rescored != wake_time:
-                    ax_raw.axvline(x=wake_rescored, color="cyan", linestyle="--", label="Rescored Wake Time", linewidth=3)
-        ax_raw.legend(loc="upper right")
+    if draw_wake_events:
+        events, event_ids = dataset_processed["wake_events"]
+        if len(events) > 0:
+            wake_event_times = events[:, 0] / fs  # Convert to seconds.
+            wake_event_times = wake_event_times - st.session_state["current_epoch"] * 30  # Center around current epoch.
+            for wake_time in wake_event_times:
+                if 0 <= wake_time <= 30:  # Only plot wake events that are within the current epoch.
+                    idx = wake_event_times.tolist().index(wake_time)
+                    wake_rescored = st.session_state["wake_time_identification"]["wake_time_selection"][idx]
+                    wake_rescored -= st.session_state["current_epoch"] * 30  # Center around current epoch.
+                    ax_raw.axvline(x=wake_time, color="blue", linestyle="--", label="Wake Event", linewidth=3)
+                    if wake_rescored != wake_time:
+                        ax_raw.axvline(x=wake_rescored, color="cyan", linestyle="--", label="Rescored Wake Time", linewidth=3)
+            ax_raw.legend(loc="upper right")
     ## Configure axes.
     ax_raw.set_title(f"Raw Data for Subject {subject_id} - Epoch {st.session_state['current_epoch']}")
     ax_raw.set_xlabel("Time (seconds)")
