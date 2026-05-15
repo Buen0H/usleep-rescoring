@@ -53,7 +53,6 @@ def main():
     st.slider("Manually indicate wake times by sliding to the corresponding epoch. Use the navigation buttons below to move through the recording.",
               min_value=0,
               max_value=int(len(dataset_processed["biosignals"]["signals"][0]) // fs),
-              value=0,
               step=1,
               on_change=update_wake_choice,
               key="slider_wake_choice",
