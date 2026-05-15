@@ -81,10 +81,18 @@ def main():
         st.success(f"Data for subject {choice_subject_id} loaded successfully.")
         # Process the dataset and store the processed data in session state
         dataset_processed = st.session_state["dataset_processed"]
-        ## Process downloaded data.
+        ## Process downloaded data. Currently only processing shared information.
         logging.info(f"Processing data for subject {choice_subject_id}.")
-        # Process for uncertain periods.
+        ## Process for uncertain periods.
         dataset_processed["scoring"] = process_scoring_data(choice_subject_id)
+        ## Clear biosignals if any; will populate after navigating to the next page.
+        dataset_processed["biosignals"] = {}
+        ## Update processed subject ID in session state.
+        dataset_processed["subject_id"] = choice_subject_id
+        # Unitialize page initilization for future runtimes.
+        ## Note: If subject ID does not change then it will reiinitialize unecessarily.
+        st.session_state["initialized"]["page_01"] = False
+        st.session_state["initialized"]["page_02"] = False
     else:
         st.warning("Please select a subject ID to continue.")
         return
