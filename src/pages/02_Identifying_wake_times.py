@@ -29,6 +29,7 @@ def main():
         else:
             st.session_state["current_epoch"] = 0  # Default to first epoch if no wake events.
             st.warning("No wake events detected in the annotations for this subject.")
+            return;
         st.session_state["initialized"]["page_02"] = True
     else: ## For subsequent runtimes, just get wake events.
         events, event_ids = st.session_state["dataset_processed"]["wake_events"]
