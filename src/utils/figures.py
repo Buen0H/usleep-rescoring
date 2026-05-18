@@ -121,18 +121,16 @@ def draw_polysomnography(draw_wake_events: bool = False):
         ax_raw.plot(time, signal + idx, linewidth=0.5, color=color)     
     if draw_wake_events:
         events, event_ids = dataset_processed["wake_events"]
+        current_time = st.session_state["current_epoch"] * 30  # Current epoch in seconds.
         if len(events) > 0:
-            wake_event_times = events[:, 0] / fs  # Convert to seconds.
-            wake_event_times = wake_event_times - st.session_state["current_epoch"] * 30  # Center around current epoch.
-            for wake_time in wake_event_times:
+            wake_event_times = events[:, 0] / fs  - current_time # Center around current epoch.
+            wake_event_times_rescored = st.session_state["wake_time_identification"]["wake_time_selection"] - current_time
+            for wake_time, wake_rescored in zip(wake_event_times, wake_event_times_rescored):
                 if 0 <= wake_time <= 30:  # Only plot wake events that are within the current epoch.
-                    idx = wake_event_times.tolist().index(wake_time)
-                    wake_rescored = st.session_state["wake_time_identification"]["wake_time_selection"][idx]
-                    wake_rescored -= st.session_state["current_epoch"] * 30  # Center around current epoch.
                     ax_raw.axvline(x=wake_time, color="blue", linestyle="--", label="Wake Event", linewidth=3)
-                    if wake_rescored != wake_time:
-                        ax_raw.axvline(x=wake_rescored, color="cyan", linestyle="--", label="Rescored Wake Time", linewidth=3)
-            ax_raw.legend(loc="upper right")
+                if 0 <= wake_rescored <= 30 and wake_rescored != wake_time:
+                    ax_raw.axvline(x=wake_rescored, color="cyan", linestyle="--", label="Rescored Wake Time", linewidth=3)
+    # ax_raw.legend(loc="upper right")
     ## Configure axes.
     ax_raw.set_title(f"Raw Data for Subject {subject_id} - Epoch {st.session_state['current_epoch']}")
     ax_raw.set_xlabel("Time (seconds)")
