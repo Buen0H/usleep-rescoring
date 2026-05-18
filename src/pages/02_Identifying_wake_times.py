@@ -51,14 +51,16 @@ def main():
     st.image(st.session_state["fig_config"]["svg_paths"]["scoring"], width="stretch")
     ## Add slider for manual indication of wake times\
     update_slider_default_value()  # Set default value for slider based on current wake time selection.
-    st.slider("Manually indicate wake times by sliding to the corresponding epoch. Use the navigation buttons below to move through the recording.",
-              min_value=0,
-              max_value=int(len(dataset_processed["biosignals"]["signals"][0]) // fs),
-              step=1,
-              on_change=update_wake_choice,
-              key="slider_wake_choice",
-            #   width=100,    # Optimize so that it aligns with matplotlib figure
-              disabled=(len(events) == 0))  # Disable slider if no wake events detected.
+    _, col, _ = st.columns([0.08, 0.88, 0.045])  # Center the slider by using columns.
+    with col:
+        st.slider("Manually indicate wake times by sliding to the corresponding epoch. Use the navigation buttons below to move through the recording.",
+                min_value=0,
+                max_value=int(len(dataset_processed["biosignals"]["signals"][0]) // fs),
+                step=1,
+                on_change=update_wake_choice,
+                key="slider_wake_choice",
+                # width=800,    # Optimize so that it aligns with matplotlib figure
+                disabled=(len(events) == 0))  # Disable slider if no wake events detected.
     ## Display polysomnography.
     st.image(st.session_state["fig_config"]["svg_paths"]["biosignals"], width="stretch")
     ## Mechanism to navigate through recording.
