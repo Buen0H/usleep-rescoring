@@ -72,10 +72,10 @@ def draw_hypnogram(draw_scoring_mask: bool = False, draw_wake_events: bool = Fal
         if np.any(manual_scoring_mask):
             plot_masked_regions(ax_scoring, manual_scoring_mask, time_hrs, color="green")
     ## Configure axes.
-    ax_scoring.set_title(f"Scoring for Subject {subject_id}")
-    ax_scoring.set_ylabel("Sleep Stage")
-    ax_scoring.set_xlabel("Time (hours)")
-    ax_scoring.set_yticks(ticks=range(5), labels=SLEEP_STAGE_LABELS)
+    ax_scoring.set_title(f"Hypnogram for Subject {subject_id}", fontsize=30)
+    ax_scoring.set_ylabel("Sleep Stage", fontsize=16)
+    ax_scoring.set_xlabel("Time (hours)", fontsize=16)
+    ax_scoring.set_yticks(ticks=range(5), labels=SLEEP_STAGE_LABELS, fontsize=14)
     ax_scoring.set_ylim(4.25,-0.25)
     fig_scoring.tight_layout()
 
@@ -132,10 +132,10 @@ def draw_polysomnography(draw_wake_events: bool = False):
                     ax_raw.axvline(x=wake_rescored, color="cyan", linestyle="--", label="Rescored Wake Time", linewidth=3)
     # ax_raw.legend(loc="upper right")
     ## Configure axes.
-    ax_raw.set_title(f"Raw Data for Subject {subject_id} - Epoch {st.session_state['current_epoch']}")
-    ax_raw.set_xlabel("Time (seconds)")
-    ax_raw.set_ylabel("Channels")  
-    ax_raw.set_yticks(ticks=range(len(ch_labels)), labels=ch_labels)
+    ax_raw.set_title(f"Polysomnography for Subject {subject_id}", fontsize=30)
+    ax_raw.set_xlabel(f"Time (seconds; from epoch {st.session_state['current_epoch']})", fontsize=16)
+    # ax_raw.set_ylabel("Channels")  
+    ax_raw.set_yticks(ticks=range(len(ch_labels)), labels=ch_labels, fontsize=16)
     ax_raw.set_ylim(len(ch_labels), -1)     # Plot from top to bottom.
     fig_raw.tight_layout()
 
@@ -208,6 +208,7 @@ def update_polysomnography():
         signal /= c_range
         ax_biosignals.lines[idx].set_ydata(signal + idx)
         ax_biosignals.lines[idx].set_xdata(time)
+    ax_biosignals.set_xlabel(f"Time (seconds; from epoch {st.session_state['current_epoch']})", fontsize=16)
     # Update svg image.
     fig_biosignals_path = fig_config["svg_paths"]["biosignals"]
     fig_biosignals.savefig(fig_biosignals_path)
