@@ -203,7 +203,17 @@ def init_session_state():
 
 def get_unique_subject_ids(filenames):
     """Extract unique subject IDs from filenames."""
-    return sorted(set(["_".join(filename.split("_")[:2]) for filename in filenames]))
+
+    subject_ids = []
+
+    for filename in filenames:
+        if filename.endswith("triggers.txt"):
+            continue
+        parts = filename.split("_")
+        subject_id = "_".join(parts[:2])
+        subject_ids.append(subject_id)
+
+    return sorted(set(subject_ids))
 
 if __name__ == "__main__":
     main()
