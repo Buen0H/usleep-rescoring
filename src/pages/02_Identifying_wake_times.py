@@ -107,6 +107,9 @@ def load_wake_events_to_session_state():
     filtered_event_ids = [id for id in event_ids.keys() if is_valid_event_id(id)]
     filtered_event_idx = [event_ids[id] for id in filtered_event_ids]
     filtered_events = events[np.isin(events[:, 2], filtered_event_idx)]
+    lights_off_event = events[np.argwhere(events[:, -1] == event_ids["lights_off"])]   #events[np.argwhere(events[:, -1] == event_ids["lights_off"])]
+    lights_off_offset = lights_off_event[0][0][0]
+    filtered_events[:, 0] = filtered_events[:, 0] - lights_off_offset  # Align events to lights off.
     st.session_state["dataset_processed"]["wake_events"] = (filtered_events, filtered_event_ids)
     return filtered_events, filtered_event_ids  # Improve by returning labeled dictionary.
 
