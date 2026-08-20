@@ -59,7 +59,7 @@ def draw_hypnogram(draw_scoring_mask: bool = False, draw_wake_events: bool = Fal
     ax_scoring.axvline(x=current_epoch_hrs, color="red", linestyle="--", label="Current Epoch")
     ax_scoring.scatter(current_epoch_hrs, scoring_naive[current_epoch], color="red", s=100, zorder=5)
     if draw_wake_events and len(events) > 0:
-        wake_event_times = events[:, 0] / fs / 3600  # Convert to hours.
+        wake_event_times = events / fs / 3600  # Convert to hours.
         # st.write(f"Wake event times (hours): {wake_event_times}")
         ax_scoring.vlines(wake_event_times, ymin=0, ymax=5, color="blue", linestyle="--", label="Wake Events")
         # ax_scoring.scatter(wake_event_times, [1]*len(wake_event_times), color="blue", marker="s", s=100, label="Wake Events")
@@ -123,7 +123,7 @@ def draw_polysomnography(draw_wake_events: bool = False):
         events, event_ids = dataset_processed["wake_events"]
         current_time = st.session_state["current_epoch"] * 30  # Current epoch in seconds.
         if len(events) > 0:
-            wake_event_times = events[:, 0] / fs  - current_time # Center around current epoch.
+            wake_event_times = events / fs  - current_time # Center around current epoch.
             wake_event_times_rescored = st.session_state["wake_time_identification"]["wake_time_selection"] - current_time
             for wake_time, wake_rescored in zip(wake_event_times, wake_event_times_rescored):
                 if 0 <= wake_time <= 30:  # Only plot wake events that are within the current epoch.

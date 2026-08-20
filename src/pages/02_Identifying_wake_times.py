@@ -22,10 +22,10 @@ def main():
         load_wake_events_to_session_state()
         events, event_ids = st.session_state["dataset_processed"]["wake_events"]
         # Initialize wake time selection to downloaded wake events.
-        st.session_state["wake_time_identification"]["wake_time_selection"] = events[:, 0] / fs # Convert to seconds.
+        st.session_state["wake_time_identification"]["wake_time_selection"] = events / fs # Convert to seconds.
         # Set current epoch to first wake event.
         if len(events) > 0:
-            st.session_state["current_epoch"] = int(events[0, 0] / fs / 30)  # Set to first wake event.
+            st.session_state["current_epoch"] = int(events[0] / fs / 30)  # Set to first wake event.
         else:
             st.session_state["current_epoch"] = 0  # Default to first epoch if no wake events.
             st.warning("No wake events detected in the annotations for this subject.")
@@ -100,18 +100,24 @@ def main():
 def is_valid_event_id(event_id):
     return event_id.startswith(("a_NREM", "a_REM")) and event_id.endswith("s")
 
+def filter_for_wake_annotations(s):
+    s = str(s)
+    return (s.startswith("a_NREM_") or s.startswith("a_REM_")) and s.endswith("_s")
+
 def load_wake_events_to_session_state():
-    """Extract wake events from the polysomnogram."""
-    mne_raw_obj = st.session_state["dataset_downloaded"]["raw_obj"]
-    events, event_ids = mne.events_from_annotations(mne_raw_obj)
-    filtered_event_ids = [id for id in event_ids.keys() if is_valid_event_id(id)]
-    filtered_event_idx = [event_ids[id] for id in filtered_event_ids]
-    filtered_events = events[np.isin(events[:, 2], filtered_event_idx)]
-    lights_off_event = events[np.argwhere(events[:, -1] == event_ids["lights_off"])]   #events[np.argwhere(events[:, -1] == event_ids["lights_off"])]
-    lights_off_offset = lights_off_event[0][0][0]
-    filtered_events[:, 0] = filtered_events[:, 0] - lights_off_offset  # Align events to lights off.
-    st.session_state["dataset_processed"]["wake_events"] = (filtered_events, filtered_event_ids)
-    return filtered_events, filtered_event_ids  # Improve by returning labeled dictionary.
+    triggers = st.session_state["dataset_downloaded"]["triggers"]
+    #filter for valid events
+    if triggers is not None:
+        lights_off_offset = triggers[triggers["descriptions"] == "lights_off"]["onsets"].values[0]
+        triggers_mask = triggers["descriptions"].apply(filter_for_wake_annotations).tolist()
+        triggers_filtered = triggers[triggers_mask]
+        wake_events_onsets = triggers_filtered["onsets"].values - lights_off_offset
+        wake_events_labels = triggers_filtered["descriptions"].tolist()
+        st.session_state["dataset_processed"]["wake_events"] = (wake_events_onsets, wake_events_labels)
+        return wake_events_onsets, wake_events_labels
+    else:
+        st.warning("No triggers data found.")
+        return None, None
 
 def update_epoch(epoch: int):
     """Update the current epoch in session state."""
@@ -125,7 +131,7 @@ def find_closest_wake_events(current_epoch: int):
     if len(events) == 0:
         return None, None
     fs = st.session_state["dataset_downloaded"]["raw_obj"].info["sfreq"]
-    event_epochs = events[:, 0] / fs / 30  # Convert event times to epochs.
+    event_epochs = events / fs / 30  # Convert event times to epochs.
     event_epochs = [int(epoch) for epoch in event_epochs]  # Convert to integers to point to epoch.
     previous_wake_event = max([epoch for epoch in event_epochs if epoch < current_epoch], default=None)
     next_wake_event = min([epoch for epoch in event_epochs if epoch > current_epoch], default=None)

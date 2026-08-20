@@ -3,6 +3,7 @@ from webdav3.client import Client
 import logging
 import numpy as np
 import mne
+import pandas as pd
 import os
 
 @st.cache_resource
@@ -30,7 +31,7 @@ def download_dataset_from_repository(experiment_name: str):
     # Get webDAV client and filenames
     client, filenames = get_connection()
     # Find valid files for the selected experiment
-    experiment_files = [filename for filename in filenames if filename.startswith(experiment_name) and (filename.endswith(".npy") or filename.endswith(".edf"))]
+    experiment_files = [filename for filename in filenames if filename.startswith(experiment_name) and ((filename.endswith(".npy") or filename.endswith(".edf")) or filename.endswith(".edf") or filename.endswith(".txt"))]
     if not experiment_files:
         logging.error(f"No valid files found for experiment {experiment_name}.")
         st.sidebar.error("No valid files found for the selected experiment.")
@@ -49,8 +50,15 @@ def download_dataset_from_repository(experiment_name: str):
         elif filename.endswith("sleepscoring_manual.edf"):
             logging.info(f"Attempting to load PSG file: {filename}")
             dataset["raw_obj"] = mne.io.read_raw_edf(local_path, preload=False, verbose=False)
+        elif filename.endswith("triggers.txt"):
+            logging.info(f"Attempting to load text file: {filename}")
+            try: 
+                df = pd.read_csv(local_path)
+                dataset["triggers"] = df
+            except Exception as e:
+                logging.error(f"Failed to load triggers file {filename}: {e}")
         else:
-            logging.warning(f"File {filename} is not a valid EDF or NPY file.")
+            logging.warning(f"File {filename} is not a valid EDF, NPY, or triggers-TXT file.")
     return dataset
 
 def upload_file_to_repository(file_path: str = None):

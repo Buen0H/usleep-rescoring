@@ -77,6 +77,7 @@ def main():
         # Store the dataset in session state
         st.session_state["dataset_downloaded"]["scoring"] = dataset["scoring"]
         st.session_state["dataset_downloaded"]["raw_obj"] = dataset["raw_obj"]
+        st.session_state["dataset_downloaded"]["triggers"] = dataset.get("triggers", None)
         st.session_state["dataset_downloaded"]["subject_id"] = choice_subject_id
         st.success(f"Data for subject {choice_subject_id} loaded successfully.")
         # Process the dataset and store the processed data in session state
@@ -152,6 +153,7 @@ def init_session_state():
             "subject_id": None,     # Will populate with subject ID after data load.
             "scoring": None,        # Will populate with scoring data after data load.
             "raw_obj": None,        # Will populate with raw object after data load.
+            "triggers": None,        # Will populate with triggers data after data load.
         }
     # Variable to keep track of processed data.
     if "dataset_processed" not in st.session_state:
