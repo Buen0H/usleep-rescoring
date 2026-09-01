@@ -45,7 +45,8 @@ def draw_hypnogram(draw_scoring_mask: bool = False, draw_wake_events: bool = Fal
     manual_scoring_mask = st.session_state["dataset_rescored"]["scoring_manual_mask"]
     if draw_wake_events:
         fs = st.session_state["dataset_downloaded"]["raw_obj"].info["sfreq"]
-        events, event_ids = dataset_processed["wake_events"]
+        # events, event_ids = dataset_processed["wake_events"]
+        rescored_wake_events = st.session_state["dataset_rescored"]["wake_time_identification"]
     subject_id = fig_config["subject_id"]
     # logging.info(f"Creating hypnogram for {subject_id}.")
 
@@ -56,14 +57,22 @@ def draw_hypnogram(draw_scoring_mask: bool = False, draw_wake_events: bool = Fal
     scoring_naive = np.array(scoring_naive_remapped)
     ## Populate figure with scoring data.
     ax_scoring.step(time_hrs, scoring_naive, where="mid", color="black")
-    ax_scoring.axvline(x=current_epoch_hrs, color="red", linestyle="--", label="Current Epoch")
-    ax_scoring.scatter(current_epoch_hrs, scoring_naive[current_epoch], color="red", s=100, zorder=5)
-    if draw_wake_events and len(events) > 0:
-        wake_event_times = events / fs / 3600  # Convert to hours.
-        # st.write(f"Wake event times (hours): {wake_event_times}")
-        ax_scoring.vlines(wake_event_times, ymin=0, ymax=5, color="blue", linestyle="--", label="Wake Events")
-        # ax_scoring.scatter(wake_event_times, [1]*len(wake_event_times), color="blue", marker="s", s=100, label="Wake Events")
-        ax_scoring.legend(loc="upper right")
+    ax_scoring.axvline(x=current_epoch_hrs, color="blue", linestyle="--")
+    ax_scoring.scatter(current_epoch_hrs, scoring_naive[current_epoch], color="blue", s=100, zorder=5, label="Current Epoch")
+    if draw_wake_events and len(rescored_wake_events) > 0:
+        lights_off_offset = st.session_state["wake_time_identification"]["lights_off"]
+        for event_id, event_info in rescored_wake_events.items():
+            recorded_onset = (event_info["recorded_onset"] - lights_off_offset) / fs / 3600  # Convert to hours.
+            rescored_onset = event_info["rescored_onset"]
+            if rescored_onset is not None:
+                rescored_onset = (event_info["rescored_onset"] - lights_off_offset) / fs / 3600
+                ax_scoring.axvline(x=rescored_onset, color="green", linestyle="--", label="Successfully Rescored", linewidth=3)
+            else:
+                ax_scoring.axvline(x=recorded_onset, color="red", linestyle="--", label="Needs rescoring", linewidth=3)
+        # Only show unique labels in the legend.
+        handles, labels = ax_scoring.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        ax_scoring.legend(by_label.values(), by_label.keys(), loc="upper right")
     if draw_scoring_mask:
         ## Highlight uncertain periods.
         if np.any(uncertain_scoring_mask):
