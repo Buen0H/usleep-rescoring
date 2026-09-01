@@ -18,6 +18,8 @@ def main():
     fs = st.session_state["dataset_downloaded"]["raw_obj"].info["sfreq"]
     ## Initialize page by loading wake events and setting current epoch to first wake event.
     if st.session_state["initialized"]["page_02"] == False:
+        # Store subject id for figures
+        st.session_state["fig_config"]["subject_id"] = current_subject_id
         # Get wake events from downloaded dataset.
         load_wake_events_to_session_state()
         events, event_ids = st.session_state["dataset_processed"]["wake_events"]
@@ -98,7 +100,7 @@ def main():
     
     # Debugging information.
     st.subheader("Debugging Information")
-    st.write(f"Current recorded file: {st.session_state["dataset_rescored"]["wake_time_identification"]}")
+    st.write("Current recorded file:")
     st.write(st.session_state["dataset_rescored"]["wake_time_identification"])
 
 def is_valid_event_id(event_id):
