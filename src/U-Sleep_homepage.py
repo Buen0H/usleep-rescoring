@@ -169,12 +169,15 @@ def init_session_state():
             "subject_id": None,                     # Keep track of rescored subject ID.
             "scoring_manual": np.array([]),         # Initialize empty array for manual scoring.
             "scoring_manual_mask": np.array([]),    # Initialize empty array for keeping track of manual scoring.
+            "wake_time_identification": {},         # Keep track of manually identified wake times.
         }
     # Variables for wake time identification; move to dataset_processed.
     if "wake_time_identification" not in st.session_state:
         st.session_state["wake_time_identification"] = {
             "subject_id": None,                     # Keep track of subject ID for wake time identification.
             "wake_time_selection": None,                 # Keep track of manually selected wake time.
+            "current_wake_event": None,             # Keep track of corresponding label for manually selected wake time.
+            "lights_off": None,                        # Keep track of lights off event.
         }
     # Variable to keep track of the current epoch.
     if "current_epoch" not in st.session_state:

@@ -21,6 +21,15 @@ def main():
         # Get wake events from downloaded dataset.
         load_wake_events_to_session_state()
         events, event_ids = st.session_state["dataset_processed"]["wake_events"]
+        # Initialize rescored wake time identification dictionary in session state.
+        lights_off_offset = st.session_state["wake_time_identification"]["lights_off"]
+        st.session_state["dataset_rescored"]["wake_time_identification"] = {
+            event_id: {
+                "recorded_onset": event_onset + lights_off_offset,  # Store the original recorded onset time.
+                "rescored_onset": None,
+            }
+            for event_onset, event_id in zip(events, event_ids)
+        }
         # Initialize wake time selection to downloaded wake events.
         st.session_state["wake_time_identification"]["wake_time_selection"] = events / fs # Convert to seconds.
         # Set current epoch to first wake event.
@@ -46,7 +55,8 @@ def main():
     current_epoch = st.session_state["current_epoch"]
     previous_epoch = current_epoch - 1
     next_epoch = current_epoch + 1
-    previous_wake_event, next_wake_event = find_closest_wake_events(current_epoch)
+    previous_wake_event, current_wake_event, next_wake_event = find_closest_wake_events(current_epoch)
+    st.session_state["wake_time_identification"]["current_wake_event"] = current_wake_event  # Store current wake event in session state.
     ## Display hypnogram.
     st.image(st.session_state["fig_config"]["svg_paths"]["scoring"], width="stretch")
     ## Add slider for manual indication of wake times\
@@ -88,14 +98,8 @@ def main():
     
     # Debugging information.
     st.subheader("Debugging Information")
-    events, event_ids = st.session_state["dataset_processed"]["wake_events"]
-    st.write("Events extracted from annotations:")
-    st.write(events)
-    st.write(event_ids)
-    st.write(current_epoch, previous_wake_event, next_wake_event)
-    wake_rescored = st.session_state["wake_time_identification"]["wake_time_selection"]
-    st.write(wake_rescored)
-    st.write(wake_rescored - current_epoch * 30)  # Show wake time selection relative to current epoch.
+    st.write(f"Current recorded file: {st.session_state["dataset_rescored"]["wake_time_identification"]}")
+    st.write(st.session_state["dataset_rescored"]["wake_time_identification"])
 
 def is_valid_event_id(event_id):
     return event_id.startswith(("a_NREM", "a_REM")) and event_id.endswith("s")
@@ -109,6 +113,7 @@ def load_wake_events_to_session_state():
     #filter for valid events
     if triggers is not None:
         lights_off_offset = triggers[triggers["descriptions"] == "lights_off"]["onsets"].values[0]
+        st.session_state["wake_time_identification"]["lights_off"] = lights_off_offset
         triggers_mask = triggers["descriptions"].apply(filter_for_wake_annotations).tolist()
         triggers_filtered = triggers[triggers_mask]
         wake_events_onsets = triggers_filtered["onsets"].values - lights_off_offset
@@ -134,8 +139,10 @@ def find_closest_wake_events(current_epoch: int):
     event_epochs = events / fs / 30  # Convert event times to epochs.
     event_epochs = [int(epoch) for epoch in event_epochs]  # Convert to integers to point to epoch.
     previous_wake_event = max([epoch for epoch in event_epochs if epoch < current_epoch], default=None)
+    current_wake_event = min([epoch for epoch in event_epochs if epoch >= current_epoch], default=None)
     next_wake_event = min([epoch for epoch in event_epochs if epoch > current_epoch], default=None)
     return int(previous_wake_event) if previous_wake_event is not None else None, \
+            int(current_wake_event) if current_wake_event is not None else None, \
             int(next_wake_event) if next_wake_event is not None else None
 
 def update_slider_default_value():
@@ -161,6 +168,12 @@ def update_wake_choice():
     idx = np.argmin(np.abs(wake_time_selection - wake_choice))
     logging.info(f"Updating wake time selection from {wake_time_selection[idx]} to {wake_choice}.")
     wake_time_selection[idx] = wake_choice
+    # Store the rescored wake time in session state.
+    fs = st.session_state["dataset_downloaded"]["raw_obj"].info["sfreq"]
+    current_wake_event_label = st.session_state["dataset_processed"]["wake_events"][1][idx]
+    lights_off_offset = st.session_state["wake_time_identification"]["lights_off"]
+    st.session_state["dataset_rescored"]["wake_time_identification"][current_wake_event_label]["rescored_onset"] = \
+        wake_choice * fs + lights_off_offset  # Convert back to seconds.
 
 if __name__ == "__main__":
     main()
