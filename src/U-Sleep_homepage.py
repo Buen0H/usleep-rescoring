@@ -106,6 +106,9 @@ def startup_sequence():
     # Create cache directory if it doesn't exist
     if not os.path.exists(CACHE_PATH):
         os.makedirs(CACHE_PATH)
+    # Quick fix; TODO: refactor cache dir
+    if not os.path.exists(st.secrets["CACHE_PATH"]):
+        os.makedirs(st.secrets["CACHE_PATH"]) 
     # Initialize session state variables
     init_session_state()
     # Set page configuration
