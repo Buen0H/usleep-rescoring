@@ -200,8 +200,12 @@ def init_session_state():
             # "signal_properties": {},    # Will populate with channel properties after data load.
         }
     # Variable to keep track of the manual scoring filename.
-    if "manual_scoring_filename" not in st.session_state:
-        st.session_state["manual_scoring_filename"] = None
+    if "filenames" not in st.session_state:
+        st.session_state["filenames"] = {
+            "sleep_staging_rescoring": None,
+            "wake_time_identification": None,
+        }
+
     # UI elements.
     if "slider_wake_choice" not in st.session_state:
         st.session_state["slider_wake_choice"] = 0  # Initialize to 0; will update based on current epoch and wake time selection.

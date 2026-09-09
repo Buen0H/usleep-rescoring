@@ -1,11 +1,13 @@
 import logging
+import os
 import streamlit as st
-import mne
+import pandas as pd
 import numpy as np
 from streamlit_shortcuts import add_shortcuts
 
 from utils.figures import draw_hypnogram, draw_polysomnography
-from utils.utils import safely_startup_page, process_biosignals
+from utils.utils import safely_startup_page, process_biosignals, get_CET_time_str
+from utils.streamlit_connection_to_radboud import upload_file_to_repository
 
 st.title("Identifying Wake Times")
 
@@ -20,6 +22,8 @@ def main():
     if st.session_state["initialized"]["page_02"] == False:
         # Store subject id for figures
         st.session_state["fig_config"]["subject_id"] = current_subject_id
+        # Initialize filename for wake time identification in session state.
+        st.session_state["filenames"]["wake_time_identification"] = f"{current_subject_id}_wake_time_identification.csv"
         # Get wake events from downloaded dataset.
         load_wake_events_to_session_state()
         events, event_ids = st.session_state["dataset_processed"]["wake_events"]
@@ -97,6 +101,32 @@ def main():
         forward="arrowright",
         fast_forward="arrowup",
     )
+
+    # Buttons to download locally or upload files to the repository.
+    col1, col2 = st.columns(2)
+    df = pd.DataFrame.from_dict(st.session_state["dataset_rescored"]["wake_time_identification"], 
+                                orient="index")
+    # Label index column for clarity.
+    df.index.name = "descriptions"
+    filename = st.session_state["filenames"]["wake_time_identification"]
+    col1.download_button(
+        label="Download scoring file",
+        data=df.to_csv(index=True),
+        file_name=filename,
+        mime="application/octet-stream",
+        width="stretch",
+    )
+    if col2.button("Upload file to repository", width="stretch"):
+        logging.info("Upload file to repository button clicked.")
+        curr_time_str = get_CET_time_str()
+        filename = f"{st.session_state['dataset_downloaded']['subject_id']}_wake_time_identification_{curr_time_str}.csv"
+        filepath = os.path.join(st.secrets["CACHE_PATH"], filename)
+        df.to_csv(path_or_buf=filepath, index=True)
+        ret = upload_file_to_repository(filepath, st.secrets["RDR_UPLOAD_PATH_WAKE_TIME_IDENTIFICATION"])
+        if ret is True:
+            st.success("File uploaded successfully.")
+        else:
+            st.error("Failed to upload file. Please check the logs for more details.")
     
     # Debugging information.
     st.subheader("Debugging Information")

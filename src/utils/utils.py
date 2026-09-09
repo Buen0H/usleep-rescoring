@@ -1,6 +1,8 @@
 import logging
 from typing import Dict
 import streamlit as st
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import numpy as np
 
 from utils.nil_sleep_analysis import analyze_uncertain_periods
@@ -68,3 +70,8 @@ def process_biosignals(n_epoch: int, subject_id: str) -> Dict:
         "fs": fs,
     }
     return processed_data
+
+def get_CET_time_str():
+    """Return current Central European Time as YYYYMMDD_HHMMSS."""
+    cet_dt = datetime.now(ZoneInfo("Europe/Amsterdam"))
+    return cet_dt.strftime("%Y%m%d_%H%M%S")

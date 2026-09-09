@@ -61,7 +61,7 @@ def download_dataset_from_repository(experiment_name: str):
             logging.warning(f"File {filename} is not a valid EDF, NPY, or triggers-TXT file.")
     return dataset
 
-def upload_file_to_repository(file_path: str = None):
+def upload_file_to_repository(file_path: str = None, remote_path: str = None):
     """Sidebar widget to upload a file to the external data repository."""
     client, _ = get_connection()
     if not client:
@@ -69,13 +69,14 @@ def upload_file_to_repository(file_path: str = None):
         return False
 
     # Define remote path
+    if remote_path is None:
+        logging.error("Remote path is not defined.")
+        return False
     filename = os.path.basename(file_path)
-    remote_path = os.path.join(st.secrets['RDR_UPLOAD_PATH'], filename)
-
 
     # Upload to WebDAV
     try:
-        client.upload_sync(remote_path=remote_path, local_path=file_path)
+        client.upload_sync(remote_path=os.path.join(remote_path, filename), local_path=file_path)
         logging.info(f"Uploaded {file_path} to repository.")
         return True
     except Exception as e:

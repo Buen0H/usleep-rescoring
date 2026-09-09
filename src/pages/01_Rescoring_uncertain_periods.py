@@ -1,8 +1,5 @@
 import logging
-from datetime import datetime
-from zoneinfo import ZoneInfo
 import os
-from typing import Dict
 import streamlit as st
 from streamlit_shortcuts import add_shortcuts
 import numpy as np
@@ -12,7 +9,7 @@ plt.style.use('seaborn-v0_8-whitegrid')
 from utils.nil_sleep_analysis import analyze_uncertain_periods
 from utils.figures import draw_hypnogram, draw_polysomnography, update_hypnogram, update_polysomnography
 from utils.streamlit_connection_to_radboud import upload_file_to_repository
-from utils.utils import safely_startup_page, process_biosignals
+from utils.utils import safely_startup_page, process_biosignals, get_CET_time_str
 
 # ''' This page allows users to rescore uncertain periods in sleep data.
 
@@ -53,7 +50,7 @@ def main():
         dataset_processed["subject_id"] = subject_id_download
         curr_time_str = get_CET_time_str()
         manual_scoring_filename = f"{subject_id_download}_scoring_manual_{curr_time_str}.npy"
-        st.session_state["manual_scoring_filename"] = manual_scoring_filename
+        st.session_state["filenames"]["sleep_staging_rescoring"] = manual_scoring_filename
         ## Initialize rescoring data structure from processed data.
         logging.info(f"Initializing rescoring for subject {dataset_processed['subject_id']}")
         scoring_array = dataset_processed["scoring"]["scoring_naive"]
@@ -76,7 +73,7 @@ def main():
         update_polysomnography()
         fig_config["current_epoch"] = st.session_state["current_epoch"]
     # Save manually scored information.
-    np.save(os.path.join(st.secrets['CACHE_PATH'],st.session_state["manual_scoring_filename"]), dataset_rescored["scoring_manual"])
+    np.save(os.path.join(st.secrets['CACHE_PATH'],st.session_state["filenames"]["sleep_staging_rescoring"]), dataset_rescored["scoring_manual"])
     # Populate UI elements.
     st.write(f"Currently rescoring uncertain periods for subject: {dataset_processed['subject_id']}")
     st.image(fig_config["svg_paths"]["scoring"], width="stretch")
@@ -143,17 +140,18 @@ def main():
 
     # Buttons to download locally or upload files to the repository.
     col1, col2 = st.columns(2)
-    with open(os.path.join(st.secrets["CACHE_PATH"], st.session_state["manual_scoring_filename"]), "rb") as f:
+    filename = st.session_state["filenames"]["sleep_staging_rescoring"]
+    with open(os.path.join(st.secrets["CACHE_PATH"], filename), "rb") as f:
         col1.download_button(
             label="Download scoring file",
             data=f,
-            file_name=st.session_state["manual_scoring_filename"],
+            file_name=filename,
             mime="application/octet-stream",
             width="stretch",
         )
     if col2.button("Upload file to repository", width="stretch"):
         logging.info("Upload file to repository button clicked.")
-        err = upload_file_to_repository(os.path.join(st.secrets["CACHE_PATH"], st.session_state["manual_scoring_filename"]))
+        err = upload_file_to_repository(os.path.join(st.secrets["CACHE_PATH"], filename), st.secrets["RDR_UPLOAD_PATH_SLEEP_RESCORING"])
         if err:
             st.success("File uploaded successfully.")
         else:
@@ -210,11 +208,6 @@ def update_scoring(scoring: int):
     if next_epoch < len(dataset_rescored["scoring_manual"]):
         st.session_state["current_epoch"] = next_epoch
         logging.info(f"Moving to next epoch {next_epoch}.")
-
-def get_CET_time_str():
-    """Return current Central European Time as YYYYMMDD_HHMMSS."""
-    cet_dt = datetime.now(ZoneInfo("Europe/Amsterdam"))
-    return cet_dt.strftime("%Y%m%d_%H%M%S")
 
 if __name__ == "__main__":
     main()
